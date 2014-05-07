@@ -47,6 +47,7 @@ uses
 {$ifdef USEGDIPLUSFORIMAGES}
   SynGdiPlus,
 {$endif}
+  ProjectRTF,
   ProjectTypes, ProjectSections, ProjectMemoExSyntax, ProjectSpellCheck,
   ProjectFormSelection, ToolWin, Menus, ExtDlgs;
 
@@ -166,6 +167,7 @@ type
     function OnClipboardPaste(Sender: TObject): boolean;
     function InsertPicture(Pic: TPicture; const Title, PicFileName: string): boolean;
     procedure AllTitles(Sender: TObject);
+    function FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
   public
     Data: TSectionsStorage;
     MemoWordClickText: string;
@@ -219,7 +221,7 @@ resourcestring
   sTitlesDot = 'Titles...';
   sTitlesSharp = 'Titles #';
   sTitlesAll = 'All titles';
-  
+
 
 implementation
 
@@ -232,7 +234,7 @@ uses
   ProjectGraphEdit,
   ProjectParser,
 {$endif}
-  ProjectRTF, SynZip,
+  SynZip,
   ProjectVersionSCR, ProjectEditorRelease, ProjectFormDocWizard,
 {$ifdef USEPARSER}
   ProjectEditorProgram,
@@ -1271,7 +1273,7 @@ begin
       Memo.SetFocus;
     end else
     if Menu.Tag>1000 then
-      // ':1 Title' -> insert @TitleID@ from Tag=1000+TitleID 
+      // ':1 Title' -> insert @TitleID@ from Tag=1000+TitleID
       Memo.InsertTextAtCurrentPos('@'+IntToStr(Menu.Tag-1000)+'@');
   end; // case Menu.Tag of
 end;
@@ -1799,11 +1801,11 @@ const
     ('[/b]','[/i]','[/u]','[/em]','','','[/color]','[/i][/color]',
      '','[/quote]','[/url]','[/quote]','','','','[/h]','[/ins]','',''));
 
-function FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
+function TFrameEditor.FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
 // convert .pro format into html or [bbcode] format
 var token: AnsiString;
     B: PAnsiChar;
-    Level, L: integer;
+    Level, L, ID, err: integer;
     Current: THtmlTags;
     InTable, HasLT, HasGT: boolean;
     InListing: AnsiChar;
@@ -2044,6 +2046,22 @@ begin
             repeat inc(P) until (P^<=' ') or (P^ in [')',',',';']);
             SetString(token,B,P-B);
             result := result+format(Tags[false,hAHRef],[token])+token+Tags[true,hAHRef];
+          end else
+          if P^ in ['1'..'9'] then begin
+            B := P;
+            repeat inc(P) until not(P^ in ['0'..'9']);
+            if P^='@' then begin
+              SetString(token,B,P-B);
+              val(token,ID,err);
+              if err=0 then begin
+                ID := TitleLinkParaIndex(ID);
+                if ID>=0 then begin
+                  token := trim(copy(Memo.Lines.Paragraphs[ID].FStrings[0],3,100));
+                  while (token<>'') and (token[1] in ['0'..'9']) do delete(token,1,1);
+                  result := result+Tags[false,hItalic]+trim(token)+Tags[true,hItalic];
+                end;
+              end;
+            end;
           end;
           continue;
         end;

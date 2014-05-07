@@ -98,6 +98,7 @@ unit ProjectVersionMain;
   - added optional EditorRightMargin=... parameter in [Project] section
   - a new section with dedicated footer is created in SAD for each unit
     (implements feature request [f33db9cd0e])
+  - @1234@ links are copied as text in BBCODE or HTML
 
 
 *)
