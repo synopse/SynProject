@@ -462,7 +462,7 @@ const
 
   RTFEndToken: set of AnsiChar = [#0..#254]-['A'..'Z','a'..'z','0'..'9'];
   HTML_TAGS: THtmlTagsSet = (
-    ('<b>','<i>','<u>','<code>','<br>','<br>','<font color="navy">','<font color="navy"><i>',
+    ('<b>','<i>','<u>','<code>','<br>','<li>','<font color="navy">','<font color="navy"><i>',
       '&nbsp;','<pre>','<a href="%s">','<table>','<td>','<tr>','<p>','<h3>',
       '<span style="background-color:yellow;">','&lt;','&gt;'),
     ('</b>','</i>','</u>','</code>','','','</font>','</i></font>',

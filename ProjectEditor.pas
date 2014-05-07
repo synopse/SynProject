@@ -1795,7 +1795,7 @@ end;
 
 const
   BBCODE_TAGS: THtmlTagsSet = (
-    ('[b]','[i]','[u]','[em]',#13#10,'','[color=navy]','[color=navy][i]',
+    ('[b]','[i]','[u]','[em]',#13#10,'- ','[color=navy]','[color=navy][i]',
      ' ','[quote]','[url=%s]','[quote]','   ','',#13#10,#13#10#13#10'[h]','[ins]',
      '<','>'),
     ('[/b]','[/i]','[/u]','[/em]','','','[/color]','[/i][/color]',
@@ -2110,6 +2110,7 @@ begin
             end;
             '-': begin
               result := result+Tags[false,hBRList];
+              repeat inc(P) until P^<>' ';
               continue;
             end;
             '!': if P[1]='$' then begin // !$=DFM
