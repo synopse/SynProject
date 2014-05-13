@@ -1620,7 +1620,7 @@ begin
     Sec := Project.Data[Sections.Items[i]];
     if Sec=nil then exit;
     if Sec['Revision']='' then begin // some [Test-DI-4.6] have Revision=..
-      Sec := Project.Data[Sec.SectionNameKind]; // otherwize -> document edit
+      Sec := Project.Data[Sec.SectionNameKind]; // otherwise -> document edit
       if (Sec=nil) or (Sec['Name']='') then exit; // real documents have Name=..
     end;
     with TProjectEditorReleaseForm.Create(Application) do

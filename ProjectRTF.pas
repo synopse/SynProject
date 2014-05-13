@@ -787,7 +787,7 @@ begin
 end;
 
 function TStringWriter.Add(const Format: string; const Args: array of const): PStringWriter;
-// all standard commands are supported, but the most usefull are optimized
+// all standard commands are supported, but the most useful are optimized
 var i,j,  c, n, L: integer;
     decim: shortstring;
 begin

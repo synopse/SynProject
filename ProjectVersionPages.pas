@@ -560,7 +560,7 @@ var F: TForm;
     P: TFramePages;
 begin
   if aVersions=nil then exit;
-  // hide view forms before F.ShowModal, otherwize they remain inaccessible
+  // hide view forms before F.ShowModal, otherwise they remain inaccessible
   if FormViewOne.Visible then
     FormViewOne.Hide;
   if FormViewTwo.Visible then

@@ -2349,7 +2349,7 @@ procedure WRTitle(const Title: string);
 begin
   if not WR.TitleFlat then
     WR.RtfPage;
-  WR.RtfTitle(title,1,false,'-'); // '-' -> force no bookmark -> otherwize,
+  WR.RtfTitle(title,1,false,'-'); // '-' -> force no bookmark -> otherwise,
     // will appear at the end of the Table of Contents
   WR.AddRtfContent(ExpandDocumentNames(format(sQuickReferenceTableN2,
     [IndexName,Doc.Params.SectionName])));

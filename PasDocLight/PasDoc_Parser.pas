@@ -2241,7 +2241,7 @@ begin
           if ItemsForNextBackComment.PasItemAt[i].RawDescription <> '' then
             DoMessage(1, mtWarning, 
               '%s: Item %s already has one description, now it''s ' +
-              'overriden by back-comment (comment starting with "<"): "%s"',
+              'overridden by back-comment (comment starting with "<"): "%s"',
               [ Scanner.GetStreamInfo,
                 ItemsForNextBackComment.PasItemAt[i].QualifiedName,
                 TCommentInfo.Content]);

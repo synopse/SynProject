@@ -772,7 +772,7 @@ begin
   CreateComponentFirstIndex := 0;
   Application.ProcessMessages;
 
-  // 2. need a message after erasing components (Windows hangs otherwize)
+  // 2. need a message after erasing components (Windows hangs otherwise)
   PostMessage(Handle,WM_USER,Value,0);
 end;
 

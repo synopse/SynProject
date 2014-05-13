@@ -42,7 +42,7 @@ function DiffStreamCompress(New, Old: PAnsiChar; NewSize, OldSize: integer;
   isEXE: boolean=false; BufSize: integer=2*1024*1024): string; overload;
 
 function DiffStreamExtract(const aDiff,aOld: string; out aOutUpd: string): string;
-// return '' if OK, error message otherwize
+// return '' if OK, error message otherwise
 // decompression don't use any RAM and is very fast
 
 

@@ -37,7 +37,7 @@ unit ProjectCommons;
   1.2 20081201 AB code review and Delphi 2009 adaptation
   1.3 20090101 AB Linux compatibility added
   1.4 20090202 AB new System/SysUtils uses fastcode -> no redirection anymore
-                  FastCode unit now contains only some usefull types/functions
+                  FastCode unit now contains only some useful types/functions
   1.9 20101015 AB
 }
 

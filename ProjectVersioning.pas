@@ -600,7 +600,7 @@ begin
           UpdateVersion(FileName,Age,result,updated);
           DoLog(FileName,ckAdd,Age);
         end else begin // -> add initial plain
-          diff := DiffStreamCompress(updated, last); // otherwize, calc diff
+          diff := DiffStreamCompress(updated, last); // otherwise, calc diff
           if diff<>'=' then
             // always check compressed diff buffer now
             if (DiffStreamExtract(diff,last,test)<>'') or
@@ -1130,7 +1130,7 @@ begin
   if (SCRFileName='') or (fSCR<>nil) or FileExists(SCRFileName) then
     exit;
   fSCR := TSectionsStorage.Create(SCRFileName);
-  // we need a [Pictures] section here, otherwize a file with size=0 is written
+  // we need a [Pictures] section here, otherwise a file with size=0 is written
   fSCR.LoadFromMemory('[Pictures]'#13'; pictures will be put here'#13#13+
    '; put tracker sections below, [11] for SCR #11, e.g.'#13+
    '; with following values (use "Add a new Tracker entry" button in toolbar):'#13+

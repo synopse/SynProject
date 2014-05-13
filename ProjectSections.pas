@@ -47,7 +47,7 @@ type
     Separator: string;
     HasBody, HasTitle: boolean;
     Level: integer;  // number of '.' in SectionName
-    Owner: TSection; // usefull for sub-items (SRS-MENU01->DI-4.1, SRS-DI-4.8->DI-4.8)
+    Owner: TSection; // useful for sub-items (SRS-MENU01->DI-4.1, SRS-DI-4.8->DI-4.8)
     constructor Create(const SectionName: string); reintroduce;
     destructor Destroy; override;
     function ReadSection(P: PChar): PChar; // calls Lines.Clear
