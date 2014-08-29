@@ -99,7 +99,10 @@ unit ProjectVersionMain;
   - a new section with dedicated footer is created in SAD for each unit
     (implements feature request [f33db9cd0e])
   - @1234@ links are copied as text in BBCODE or HTML
-
+  - F10 dialog will now display the title numbers, and the maximum title #
+  - link or jump to numbered menu will now be grouped by 20 (for readibility)  
+  - Titles are now defined with the style expected by MSWord, so that e.g. the
+    generated PDF would contain the document table of content as bookmarks
 
 *)
 

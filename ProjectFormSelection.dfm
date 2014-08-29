@@ -23,12 +23,12 @@ object SelectionForm: TSelectionForm
     Top = 25
     Width = 555
     Height = 602
-    Style = lbVirtual
+    Style = lbVirtualOwnerDraw
     Align = alClient
     ItemHeight = 18
     TabOrder = 1
-    OnData = ListData
     OnDblClick = ListDblClick
+    OnDrawItem = ListDrawItem
   end
   object pnlTop: TPanel
     Left = 0
@@ -67,6 +67,7 @@ object SelectionForm: TSelectionForm
       ParentShowHint = False
       ShowHint = True
       TabOrder = 1
+      TabStop = False
       OnClick = edtFindChange
     end
   end

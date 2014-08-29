@@ -166,7 +166,8 @@ type
     function TitleLinkParaIndex(TitleID: integer): integer;
     function OnClipboardPaste(Sender: TObject): boolean;
     function InsertPicture(Pic: TPicture; const Title, PicFileName: string): boolean;
-    procedure AllTitles(Sender: TObject);
+    procedure AllTitles;
+    function ShowSelectionForm(OnlyNumberedTitles: boolean): TSelectionForm;
     function FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
   public
     Data: TSectionsStorage;
@@ -597,36 +598,42 @@ begin
   end;
 end;
 
-procedure TFrameEditor.AllTitles(Sender: TObject);
-var i,Para,ParaIndex: integer;
-    Value: string;
+procedure TFrameEditor.AllTitles;
 begin
-  with TSelectionForm.Create(self) do // "All titles" window
+  with ShowSelectionForm(false) do
   try
-    Caption := '   '+ExtractFileName(Data.FileName);
-    Memo.Lines.Index2ParaIndex(Memo.CaretY,Para,ParaIndex);
-    with Memo.Lines do
-     for i := 0 to Count-1 do begin
-       Value := Paragraphs[i].FStrings[0];
-       if Value='' then
-         continue;
-       case Value[1] of
-         '[': Lines.AddObject(Value,TObject(i));
-         ':': Lines.AddObject(copy(Value,2,maxInt),TObject(i));
-         else continue;
-       end;
-       if Para>=i then
-         Selected := Lines.Count-1;
-     end;
-     ShowModal;
-     if Selected>=0 then begin
-       HistoryAddFromCurrent;
-       Memo.SetCaretAtParaPos(integer(Lines.Objects[Selected]),0);
-       Memo.SetFocus;
-     end;
+    if Selected>=0 then begin
+      HistoryAddFromCurrent;
+      Memo.SetCaretAtParaPos(integer(Lines.Objects[Selected]),0);
+      Memo.SetFocus;
+    end;
   finally
     Free;
   end;
+end;
+
+function TFrameEditor.ShowSelectionForm(OnlyNumberedTitles: boolean): TSelectionForm;
+var i,Para,ParaIndex: integer;
+    Value: string;
+begin
+  result := TSelectionForm.Create(self);
+  result.OnlyNumberedTitles := OnlyNumberedTitles;
+  result.Caption := '   '+ExtractFileName(Data.FileName);
+  Memo.Lines.Index2ParaIndex(Memo.CaretY,Para,ParaIndex);
+  with Memo.Lines do
+   for i := 0 to Count-1 do begin
+     Value := Paragraphs[i].FStrings[0];
+     if Value='' then
+       continue;
+     case Value[1] of
+       '[': result.Lines.AddObject(Value,TObject(i));
+       ':': result.Lines.AddObject(copy(Value,2,maxInt),TObject(i));
+       else continue;
+     end;
+     if Para>=i then
+       result.Selected := result.Lines.Count-1;
+   end;
+  result.ShowModal;
 end;
 
 function TFrameEditor.InsertPicture(Pic: TPicture; const Title, PicFileName: string): boolean;
@@ -845,7 +852,8 @@ end;
 
 procedure TFrameEditor.BtnLinkSectionClick(Sender: TObject);
 var Kind: integer;
-function NewMenu(const Name, Hint: string; Menu: TMenuItem): TMenuItem;
+function NewMenu(const Name, Hint: string; Menu: TMenuItem;
+  PMenuIndex: PInteger=nil): TMenuItem;
 function IsChild(const aParent: string; NewMenu,ParentMenu: TMenuItem): boolean;
 var i: integer;
     NewFirstMenu: TMenuItem;
@@ -892,11 +900,18 @@ begin
       if IsChild(copy(Name,1,i-1),result,Menu) then
         exit; // avoid insert same menu twice
   end;
-  Menu.Add(result); // insert menu at default level
+  if PMenuIndex=nil then         // insert menu at default level
+    Menu.Add(result) else begin  // group menus per 20 items
+    if PMenuIndex^ mod 20=0 then
+      NewMenu(Format('%d..',[PMenuIndex^ div 20*20+1]),'',Menu).ImageIndex := Menu.ImageIndex;
+    Menu.Items[Menu.Count-1].Add(result);
+    inc(PMenuIndex^);
+  end;
 end;
 var i,j,k: integer;
     s, aName, aValue: string;
     Menu, aMenu, PopupMenuLink: TMenuItem;
+    MenuIndex: integer;
     Str: TStringList;
     Sec, Test: TSection;
     P: PChar;
@@ -944,6 +959,7 @@ begin
               Delete(Count-1); // nothing to add -> delete this item
       end;
     Menu := nil;  // ':1 Title' -> create "Titles..." submenu
+    MenuIndex := 0;
     Str := TStringList.Create;
     aName := '';
     with Memo.Lines do
@@ -976,29 +992,32 @@ begin
           Str.InsertObject(k,s,TObject(kind shl 16+i));
           if Sender=Sections then
              // jump paraIndex Tag-10000
-            kind := 10000+i else 
+            kind := 10000+i else
              // insert @Tag-1000@
             inc(kind,1000);
-          NewMenu(s,'',Menu);
+          NewMenu(s,'',Menu,@MenuIndex);
         end;
       end;
     end;
     if Str.Count>0 then begin
       Menu := NewMenu(sTitlesSharp,'',PopupMenuLink);
       Menu.ImageIndex := BtnTextAll.ImageIndex;
+      MenuIndex := 0;
       for i := 0 to Str.Count-1 do begin
         kind := integer(Str.Objects[i]); // insert @Tag-1000@
         if Sender=Sections then
           kind := 10000+kind and $ffff else
           kind := (kind shr 16)+1000;
-        NewMenu(Str[i],'',Menu);
+        NewMenu(Str[i],'',Menu,@MenuIndex);
       end;
     end;
     Str.Free;
+    if Sender=Sections then
+      Kind := 20 else // MenuItem.Tag=20 -> "All titles" jump window
+      Kind := 23; // MenuItem.Tag=22 -> "All numbered titles" link window
+    Menu := NewMenu(sTitlesAll,'',PopupMenuLink);
+    Menu.ImageIndex := BtnTextAll.ImageIndex;
     if Sender=Sections then begin
-      Kind := 20; // MenuItem.Tag=20 -> "All titles" window
-      Menu := NewMenu(sTitlesAll,'',PopupMenuLink);
-      Menu.ImageIndex := BtnTextAll.ImageIndex;
       Menu.ShortCut := VK_F10;
       exit; // no auto popup from Sections TListbox
     end;
@@ -1263,8 +1282,18 @@ begin
   end;
   10:  // link to picture
     Memo.InsertTextAtCurrentPos('@'+Value+'@');
-  20:
-    AllTitles(nil);
+  20: 
+    AllTitles;
+  23: begin
+    with ShowSelectionForm(true) do
+    try
+      i := TitleToNumber(Selected);
+      if i>0 then
+        Memo.InsertTextAtCurrentPos('@'+IntToStr(i)+'@');
+    finally
+      Free;
+    end;
+  end;
   else
     if Menu.Tag>10000 then begin
       // ':1 Title' -> jump from Tag=10000+paraIndex
@@ -1329,7 +1358,7 @@ begin
     end;
   end;
   VK_F10:                                // F10 = browse document titles
-    AllTitles(nil);
+    AllTitles;
   end else
   if ssAlt in Shift then // Alt Key
   case Key of

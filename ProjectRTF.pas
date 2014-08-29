@@ -24,8 +24,8 @@ unit ProjectRTF;
   Revision 1.13
   - TRTF is now a TClass, with virtual methods to allow not only RTF backend
 
-  Revision 1.15
-  - new THTML backend, to write... HTML content
+  Revision 1.18
+  - new THTML backend, to write HTML content using BootStrap template
 
 *)
 
@@ -160,6 +160,7 @@ type
     TitleLevel: TTitleLevel;
     TitleLevelCurrent: integer;
     LastTitleBookmark: string;
+    MaxTitleOutlineLevel: integer;
     PicturePath: string;
     TitlesList: TStringList; // <>nil -> RtfTitle() add one (TitleList.Free in Caller)
     TitleFlat: boolean; // true -> Titles are all numerical with no big sections
@@ -172,7 +173,7 @@ type
       aDefLang: integer = $0409; // french is $040c (1036)
       aLandscape: boolean = false; aCloseManualy: boolean = false;
       aTitleFlat: boolean = false; const aF0: string = 'Calibri';
-      const aF1: string = 'Consolas'); virtual;
+      const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); virtual;
     class function CreateFrom(aParent: TProjectWriter): TProjectWriter;
     // if CloseManualy was true
     procedure InitClose; virtual; abstract;
@@ -259,7 +260,7 @@ type
       aDefLang: integer = $0409; // french is $040c (1036)
       aLandscape: boolean = false; CloseManualy: boolean = false;
       aTitleFlat: boolean = false; const aF0: string = 'Calibri';
-      const aF1: string = 'Consolas'); override;
+      const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); override;
     procedure InitClose; override; // if CloseManualy was true
     procedure SaveToFile(Format: TSaveFormat; OldWordOpen: boolean); override;
 
@@ -315,9 +316,12 @@ type
     Current: THtmlTags;
     InTable, HasLT: boolean;
     Stack: array[0..20] of THtmlTags; // stack to handle { }
+    fHeaderWritten: boolean;
+    fContent,fAuthor,fTitle: string;
     procedure SetLast(const Value: TLastRTF); override;
     procedure SetLandscape(const Value: boolean); override;
     procedure WriteAsHtml(P: PAnsiChar);
+    procedure EnsureHeaderWritten;
   public
     constructor Create(const aLayout: TProjectLayout;
       aDefFontSizeInPts: integer; // in points
@@ -325,7 +329,7 @@ type
       aDefLang: integer = $0409; // french is $040c (1036)
       aLandscape: boolean = false; aCloseManualy: boolean = false;
       aTitleFlat: boolean = false; const aF0: string = 'Calibri';
-      const aF1: string = 'Consolas'); override;
+      const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); override;
     procedure InitClose; override; // if CloseManualy was true
     procedure SaveToFile(Format: TSaveFormat; OldWordOpen: boolean); override;
 
@@ -461,12 +465,33 @@ const
   XMLKEYWORDS: array[0..0] of string = ('');
 
   RTFEndToken: set of AnsiChar = [#0..#254]-['A'..'Z','a'..'z','0'..'9'];
+
   HTML_TAGS: THtmlTagsSet = (
     ('<b>','<i>','<u>','<code>','<br>','<li>','<font color="navy">','<font color="navy"><i>',
       '&nbsp;','<pre>','<a href="%s">','<table>','<td>','<tr>','<p>','<h3>',
       '<span style="background-color:yellow;">','&lt;','&gt;'),
     ('</b>','</i>','</u>','</code>','','','</font>','</i></font>',
       '','</pre>','</a>','</table>','</td>','</tr>','</p>','</h3>'#13#10,'</span>','',''));
+
+  // format() parameters: [QuotedContent,QuotedAuthor,EscapedPageTitle]
+  BOOTSTRAP_HEADER =
+    '<!DOCTYPE html>' + #13#10 +
+    '<html lang="en">' + #13#10 +
+      '<head>' + #13#10 +
+        '<meta charset="utf-8">' + #13#10 +
+        '<meta http-equiv="X-UA-Compatible" content="IE=edge">' + #13#10 +
+        '<meta name="viewport" content="width=device-width, initial-scale=1">' + #13#10 +
+        '<meta name="description" content=%s>' + #13#10 +
+        '<meta name="author" content=%s>' + #13#10 +
+        '<title>%s</title>' + #13#10 +
+        '<link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">' + #13#10 +
+        '<link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">' + #13#10 +
+        '<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>' + #13#10 +
+      '</head>' + #13#10 +
+      '<body>';
+  BOOTSTRAP_FOOTER =
+      '</body>'#13#10 +
+      '</html>';
 
 procedure CSVValuesAddToStringList(const aCSV: string; List: TStrings); overload;
 // add all values in aCSV into List[]
@@ -1273,25 +1298,32 @@ end;
 
 constructor TRTF.Create(const aLayout: TProjectLayout;
   aDefFontSizeInPts, aCodePage, aDefLang: integer;
-  aLandscape, CloseManualy, aTitleFlat: boolean; const aF0, aF1: string);
+  aLandscape, CloseManualy, aTitleFlat: boolean; const aF0, aF1: string;
+  aMaxTitleOutlineLevel: integer);
+var i: integer;
 begin
   inherited;
   WR.AddShort('{\rtf1\ansi\ansicpg').AddWord(aCodePage).AddShort('\deff0\deffs').
-  AddInteger(aDefFontSizeInPts).AddShort('\deflang').AddInteger(aDefLang).
-  AddShort('{\fonttbl{\f0\fswiss\fcharset0 ').Add(aF0).
-  AddShort(';}{\f1\fmodern\fcharset0 ').Add(aF1).Add(';}}'+
+    AddInteger(aDefFontSizeInPts).AddShort('\deflang').AddInteger(aDefLang).
+    AddShort('{\fonttbl{\f0\fswiss\fcharset0 ').Add(aF0).
+    AddShort(';}{\f1\fmodern\fcharset0 ').Add(aF1).Add(';}}'+
       '{\colortbl;\red0\green0\blue0;\red0\green0\blue255;\red0\green255\blue255;'+
       '\red0\green255\blue0;\red255\green0\blue255;\red255\green0\blue0;'+
       '\red255\green255\blue150;\red255\green255\blue255;\red22\green43\blue90;'+
       '\red0\green128\blue128;\red0\green128\blue0;\red128\green0\blue128;'+
       '\red128\green0\blue0;\red128\green128\blue0;\red128\green128\blue128;'+
       '\red235\green235\blue230;}'+ // full default colortbl (for \highlight)
-      '\viewkind4\uc1\paperw').
-  AddInteger(Layout.Page.Width).AddShort('\paperh').AddInteger(Layout.Page.Height).
-  AddShort('\margl').AddInteger(Layout.Margin.Left).
-  AddShort('\margr').AddInteger(Layout.Margin.Right).
-  AddShort('\margt').AddInteger(Layout.Margin.Top).
-  AddShort('\margb').AddInteger(Layout.Margin.Bottom);
+      '\viewkind4\uc1\paperw').AddInteger(Layout.Page.Width).
+      AddShort('\paperh').AddInteger(Layout.Page.Height).
+    AddShort('\margl').AddInteger(Layout.Margin.Left).
+    AddShort('\margr').AddInteger(Layout.Margin.Right).
+    AddShort('\margt').AddInteger(Layout.Margin.Top).
+    AddShort('\margb').AddInteger(Layout.Margin.Bottom).
+    AddShort('{\stylesheet{ Normal;}');
+  for i := 1 to MaxTitleOutlineLevel do
+    WR.AddShort('{\s').AddInteger(i).AddShort('\outlinelevel').AddInteger(i-1).
+       AddShort('\snext0 heading ').AddInteger(i).AddShort(';}');
+  WR.Add('}');
   if LandScape then
     WR.AddShort('\landscape');
 (*  if aHeaderTop<>0 then
@@ -1474,6 +1506,8 @@ begin
       RtfFont(Max(140-TitleLevelCurrent*10,100)) else
       RtfFont(Max(180-TitleLevelCurrent*20,100));
   end;
+  if TitleLevelCurrent<=MaxTitleOutlineLevel then
+    WR.AddShort('\s').AddInteger(TitleLevelCurrent).Add(' ');
   if withNumbers then begin
     for i := 1 to TitleLevelCurrent do
       WR.AddWord(TitleLevel[i-1]).Add('.');
@@ -1976,7 +2010,8 @@ end;
 
 constructor TProjectWriter.Create(const aLayout: TProjectLayout;
   aDefFontSizeInPts, aCodePage, aDefLang: integer; aLandscape,
-  aCloseManualy, aTitleFlat: boolean; const aF0, aF1: string);
+  aCloseManualy, aTitleFlat: boolean; const aF0, aF1: string;
+  aMaxTitleOutlineLevel: integer);
 begin
   InternalCreate;
   aDefFontSizeInPts := aDefFontSizeInPts*2;
@@ -1993,6 +2028,7 @@ begin
   IndentWidth := 240;  // list or title first line indent (default 240 twips)
   if not TitleFlat then
     TitleLevel[0] := -1; // introduction = first chapter = no number
+  MaxTitleOutlineLevel := aMaxTitleOutlineLevel;
   // inherited should finish with:  if not CloseManualy then InitClose;
 end;
 
@@ -2406,18 +2442,42 @@ end;
 
 { THTML }
 
+function HtmlEncode(const s: string): string;
+var i: integer;
+begin // not very fast, but working
+  result := '';
+  for i := 1 to length(s) do
+    case s[i] of
+      '<': result := result+'&lt;';
+      '>': result := result+'&gt;';
+      '&': result := result+'&amp;';
+      '"': result := result+'&quot;';
+      else result := result+s[i];
+    end;
+end;
+
 function THTML.AddRtfContent(const s: string): TProjectWriter;
 begin
+  EnsureHeaderWritten;
   WriteAsHtml(pointer(s));
   result := self;
 end;
 
 constructor THTML.Create(const aLayout: TProjectLayout; aDefFontSizeInPts,
   aCodePage, aDefLang: integer; aLandscape, aCloseManualy,
-  aTitleFlat: boolean; const aF0, aF1: string);
+  aTitleFlat: boolean; const aF0, aF1: string; aMaxTitleOutlineLevel: integer);
 begin
   inherited;
   { TODO : multi-page layout }
+end;
+
+procedure THTML.EnsureHeaderWritten;
+begin
+  if fHeaderWritten then
+    exit;
+  WR.Add(Format(BOOTSTRAP_HEADER,[AnsiQuotedStr(fContent,'"'),
+    AnsiQuotedStr(fAuthor,'"'),HtmlEncode(fTitle)]));
+  fHeaderWritten := true;
 end;
 
 procedure THTML.InitClose;
@@ -2428,14 +2488,16 @@ end;
 
 function THTML.RtfBig(const text: string): TProjectWriter;
 begin
-  WR.Add(HTML_TAGS[False,hTitle]);
+  EnsureHeaderWritten;
+  WR.Add('<h1>');
   AddRtfContent(text);
-  WR.Add(HTML_TAGS[True,hTitle]).AddCRLF;
+  WR.Add('</h1>').AddCRLF;
   result := self;
 end;
 
 function THTML.RtfBookMark(const Text, BookmarkName: string): string;
 begin
+  EnsureHeaderWritten;
   if BookmarkName='' then
     result := '' else begin
     result := RtfBookMarkName(BookmarkName);
@@ -2449,7 +2511,7 @@ procedure THTML.RtfCols(const ColXPos: array of integer;
   const RowFormat: string);
 begin
   fColsCount := length(ColXPos);
-  WR.AddCRLF.Add(HTML_TAGS[False,hTable]);
+  WR.AddCRLF.Add('<table class="table">');
   Last := lastRtfCols;
   { TODO: handle table cells format }
 end;
@@ -2471,6 +2533,7 @@ end;
 
 function THTML.RtfFont(SizePercent: integer): TProjectWriter;
 begin
+  EnsureHeaderWritten;
 
 end;
 
@@ -2481,6 +2544,7 @@ end;
 
 procedure THTML.RtfFooterBegin(aFontSize: integer);
 begin
+  EnsureHeaderWritten;
   inherited;
 
 end;
@@ -2498,6 +2562,7 @@ end;
 
 procedure THTML.RtfHeaderBegin(aFontSize: integer);
 begin
+  EnsureHeaderWritten;
   inherited;
 
 end;
@@ -2549,6 +2614,7 @@ end;
 
 function THTML.RtfParDefault: TProjectWriter;
 begin
+  EnsureHeaderWritten;
 
 end;
 
@@ -2575,6 +2641,7 @@ end;
 procedure THTML.RtfTitle(Title: string; LevelOffset: integer;
   withNumbers: boolean; Bookmark: string);
 begin
+  EnsureHeaderWritten;
   inherited;
 
 end;
@@ -2588,8 +2655,10 @@ end;
 procedure THTML.SetInfo(const aTitle, aAuthor, aSubject, aManager,
   aCompany: string);
 begin
-  inherited;
-
+  fTitle := aTitle;
+  fAuthor := aAuthor;
+  fContent := aSubject;
+  EnsureHeaderWritten;
 end;
 
 procedure THTML.SetLandscape(const Value: boolean);
