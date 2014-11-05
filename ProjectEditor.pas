@@ -159,7 +159,7 @@ type
     function HistoryAdd(const Clicked: TWordUnderCursor): boolean;
     procedure SetParams(const Value: boolean);
     procedure LinkMenuClick(Sender: TObject);
-    function CreateTempProject: TProject;
+    function CreateTempProject(aClass: TProjectWriterClass=nil): TProject;
     function GetReadOnly: boolean;
     procedure SetReadOnly(const Value: boolean);
     procedure UpdateSectionValues(Sec: TSection);
@@ -1060,6 +1060,7 @@ begin
       if Value['Source']<>'' then begin // [SAD] document
         NewMenu(SectionName,aValue,Menu);
         NewMenu(SectionName+' pdf',aValue,Menu);
+        NewMenu(SectionName+' html',aValue,Menu);
 {$ifdef USEPARSER}
         NewMenu('-','',Menu);
         Kind := 13; // MenuItem.Tag=13 -> Refresh
@@ -1210,15 +1211,18 @@ begin
     SectionsClick(nil);
   end;
   6,7,8,9,11,12,13,14,15,16,17,18,19,21,22: begin
-    Project := CreateTempProject;
+    if (Menu.Tag=6) and (copy(Value,length(Value)-4,10)=' html') then
+      Project := CreateTempProject(THTML) else
+      Project := CreateTempProject;
     try
       Screen.Cursor := crHourGlass;
       case Menu.Tag of
       6: begin
-        if copy(Value,length(Value)-3,10)=' pdf' then begin
-          Project.CreateDefaultDocument(Copy(Value,1,length(Value)-4),nil,false,fPdf);
-        end else
-          Project.CreateDefaultDocument(Value,nil,false,fDoc);
+        if copy(Value,length(Value)-4,10)=' html' then 
+          Project.CreateDefaultDocument(Copy(Value,1,length(Value)-5),nil,false,fHtml) else
+        if copy(Value,length(Value)-3,10)=' pdf' then
+          Project.CreateDefaultDocument(Copy(Value,1,length(Value)-4),nil,false,fPdf) else
+          Project.CreateDefaultDocument(Value);
         Project.DestroyOpensCreatedDocuments := true; //  Destroy will launch doc
       end;
       7: begin
@@ -1496,14 +1500,17 @@ begin
   end;
 end;
 
-function TFrameEditor.CreateTempProject: TProject;
+function TFrameEditor.CreateTempProject(aClass: TProjectWriterClass=nil): TProject;
 var Name: string;
 begin
   Name := ChangeFileExt(Data.FileName,'~.tmp');
   UpdateDataFromTextAllIfNecessary;
   Data.SaveToFile(Name);
-  result := TProject.Create(TRTF,Name);
-  DeleteFile(Name);
+  if aClass=nil then
+    aClass := TRTF;
+  result := TProject.Create(aClass,Name);
+  if Name<>'' then
+    DeleteFile(Name);
 end;
 
 procedure EnsureSingleInstance;
@@ -1826,9 +1833,10 @@ const
   BBCODE_TAGS: THtmlTagsSet = (
     ('[b]','[i]','[u]','[em]',#13#10,'- ','[color=navy]','[color=navy][i]',
      ' ','[quote]','[url=%s]','[quote]','   ','',#13#10,#13#10#13#10'[h]','[ins]',
-     '<','>'),
+     '<','>','&','','- ','[b]','','',''),
     ('[/b]','[/i]','[/u]','[/em]','','','[/color]','[/i][/color]',
-     '','[/quote]','[/url]','[/quote]','','','','[/h]','[/ins]','',''));
+     '','[/quote]','[/url]','[/quote]','','','','[/h]','[/ins]',
+     '','','','','','[/b]','','',''));
 
 function TFrameEditor.FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
 // convert .pro format into html or [bbcode] format

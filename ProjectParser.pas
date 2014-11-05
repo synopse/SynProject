@@ -994,7 +994,7 @@ begin
       if Kind=3 then begin
         SVG := Img;
         StringToFile(DestDir+FileName+'.dot',Source);
-        //StringToFile(DestDir+FileName+'.svg',SVG);
+        StringToFile(DestDir+FileName+'.svg',SVG);
         SVGToEMF(SVG,DestDir+FN);
       end else
         Img.Save(DestDir+FN);
@@ -1419,8 +1419,9 @@ var i, j: integer;
     isCio, hasFields: boolean;
 procedure LinePage(const SectionNameValue: string);
 begin
-  line.RtfLinkTo(SectionNameValue,SectionNameValue).AddRtfContent(' (page ');
-  line.RtfPageRefTo(SectionNameValue,true,false).AddRtfContent(')');
+  line.RtfLinkTo(SectionNameValue,SectionNameValue);
+  if line.HandlePages then
+    line.AddRtfContent(' (page ').RtfPageRefTo(SectionNameValue,true).AddRtfContent(')');
 end;
 procedure Field(Fields: TPasItems; const FieldName: string);
 var f, i: integer;
@@ -1459,7 +1460,7 @@ begin
               line.RtfPar;
             line.AddRtfContent('{');
             line.RtfBookMark('\i '+sUsedFor+' ',
-              BookMarkHash(m.MyUnit.OutputFileName+'.'+fullName));
+              BookMarkHash(m.MyUnit.OutputFileName+'.'+fullName),true);
             highlight := false;
           end else
             line.AddRtfContent(', ');
@@ -1470,7 +1471,7 @@ begin
     end;
    { if not line.RtfValid then
       MessageBox(0,pointer(line.Data),pointer(aUnit.Name),0); }
-    if insideTable then
+    if insideTable and WR.HandlePages then
       WR.RtfRow([line.Data]) else begin
       line.RtfPar;
       line.SaveToWriter(WR);
@@ -1497,7 +1498,7 @@ var highlight: boolean;
 begin
   if (Items=nil) or (Items.Count=0) then exit;
   ok := false;
-  line := TProjectWriter.CreateFrom(WR);
+  line := WR.Clone;
   SetLength(OKs,Items.Count);
   SL := TStringList.Create;
   try
@@ -1533,11 +1534,11 @@ begin
         p := TPasItem(Items[Integer(SL.Objects[i])]);
         WR.RtfRow(['\ql{\f1\fs18 '+p.Name+'}',
           MainDescription(p.RawDescriptionInfo.Content),
-          '\qc '+RtfPageRefTo(p.QualifiedName,True)]);
+          '\qc '+WR.RtfPageRefToString(p.QualifiedName,True,false)]);
       end;
       WR.RtfColsEnd.RtfPar;
     end;
-    if insideTable then
+    if insideTable and WR.HandlePages then
       WR.RtfColsPercent([100],false,false,false,'\trkeep');
     ok := false;
     for i := 0 to Items.Count-1 do
@@ -1607,8 +1608,8 @@ begin
         if not highlight then
           line.AddRtfContent('}.');
       end;
-      WR.RtfBookMark('',p.QualifiedName);
-      if insideTable then
+      WR.RtfBookMark('',p.QualifiedName,false);
+      if insideTable and WR.HandlePages then
         WR.RtfRow([line.Data]) else
         line.RtfPar.SaveToWriter(WR);
       if hasFields then begin
@@ -1652,7 +1653,7 @@ begin
       if CSVContains(Value['UnitsUsed'],aUnit.OutputFileName) then begin
        WR.RtfRow(['\qc '+WR.RtfGoodSized(SectionNameValue),
         '\ql '+TrimLastPeriod(Owner.ShortDescription('')),
-        '\qc '+RtfPageRefTo(SectionNameValue,true)]);
+        '\qc '+WR.RtfPageRefToString(SectionNameValue,true,false)]);
         CSVAddOnceCSV(procnames,Value[aUnit.Name+'.pas']);
       end;
     WR.RtfColsEnd;
@@ -1674,7 +1675,7 @@ begin
       ok := true;
     end;
     WR.RtfRow(['\ql{\i '+p.Name+'}',TPasUnit(p).UnitDescription(false),
-        '\qc '+RtfPageRefTo(TPasUnit(p).OutputFileName,true)]);
+        '\qc '+WR.RtfPageRefToString(TPasUnit(p).OutputFileName,true,false)]);
   end;
   if ok then
     WR.RtfColsEnd;
@@ -1721,7 +1722,8 @@ begin
     end;
     desc := UnitDescription(true);
     Project.ParseSAD.Params[OutputFileName] := desc; // write description in [SAD].EIA\Name.pas=...
-    WR.RtfRow(['\ql{\i '+Name+'}',desc,'\qc '+RtfPageRefTo(OutputFileName,true)]);
+    WR.RtfRow(['\ql{\i '+Name+'}',desc,
+      '\qc '+WR.RtfPageRefToString(OutputFileName,true,false)]);
   end;
   EndDir;
 end;

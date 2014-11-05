@@ -269,6 +269,8 @@ type
     ForcedOnlySection: TSection; // for CreateRTFDetails() -> ignore all other
     TitleBookmark: TStringList;
     fGraphValues: TSection;
+    PageTableHeader: string;
+    SideBar: TProjectWriter;
     // cross-references:
     ReferencePictures, // Picture Caption=Bookmark0,Bookmark1...
     ReferenceIndex,    // KeyWord 1=bookmark0,bookmark1...
@@ -629,7 +631,7 @@ begin
     repeat
       doc := GetNextItem(P);
       if doc='' then break;
-      if FileExists(doc) then
+      if FileExists(doc) and (DebugHook=0) then
         ShellExecute(0,nil,pChar(doc),nil,nil,SW_SHOWMAXIMIZED);
     until false;
 end;
@@ -701,6 +703,27 @@ begin
   WR := WRClass.Create(Layout,11,1252,
     Project.ReadInteger('DefLang',1033),Landscape,true,isTrue(Doc.Params['TitleFlat']));
   WR.PicturePath := FileNameDir;  // 'D:\Dev\Synopse\Documents\Product New Version\'
+  WR.DestPath := DestinationDir;
+  SideBar := WR.Clone;
+  if WR.HandlePages then
+    PageTableHeader := '\qc '+sPage+'\b0' else
+    if WRClass=THTML then begin
+      SideBar.AddRtfContent(
+        #1'<div class="sidebar"><div class="sidebarwrapper">'#1).RtfText;
+      P := pointer(Project['HtmlSideBar']);
+      repeat
+        Name := GetNextItem(P,'/');
+        Purpose := GetNextItem(P,':');
+        Value := GetNextItem(P,',');
+        if (Name='') or (Value='') then
+          break;
+        Name := '{\b '+Name+'}';
+        if IdemPChar(Pointer(Value),'HTTP://') then
+          SideBar.AddRtfContent(SideBar.RtfHyperlinkString(Value,Name)) else
+          SideBar.RtfLinkTo(Value,Name);
+        SideBar.AddRtfContent(#1'<br><small>'#1+Purpose+#1'</small>'#1).RtfPar;
+      until P=nil;
+    end;
   // 1.2 Header and Footer
   if aDocumentTitle='' then
     Header.DocumentTitle := Doc.Params['Name'] else
@@ -754,7 +777,7 @@ begin
     Logo := Project['Logo'];
     if (Logo<>'') and (Pictures[Logo]<>'') and not NoProjectDetailsLogo then begin
       Logo := Logo+' '+ValAt(Pictures[Logo],0);
-      WR.RtfImage(Logo,'',true,'\ql').AddRtfContent('\line'#13);
+      WR.RtfImage(Logo,'',true,'\ql').AddRtfContent('\line'#13#10);
     end;
     WR.AddRtfContent('{\b\cf9 '+sProjectDocumentation);
     if not Header.Visible then // no header -> write Company name in ProjectDetails
@@ -817,7 +840,7 @@ begin
       WR.RtfPar.RtfBig(sDocumentPurpose).
         AddRtfContent(sDocumentPurposeSentence,[Header.DocumentTitle,
           TrimLastPeriod(Purpose,true),Header.ProjectName,Header.Rev]).
-          AddRtfContent(#13);
+          AddRtfContent(#13#10);
     end;
     WR.RtfText; // close any pending {
     ReferenceDocumentsPos := WR.len;
@@ -830,9 +853,10 @@ begin
   if aDocumentTitle='' then begin
     aDocumentTitle := Doc.Params.DocName;
     WR.FileName := Project.ReadString('DocName',Header.ProjectName)+' '+
-      aDocumentTitle+' '+Header.Rev+'.rtf';
+      aDocumentTitle+' '+Header.Rev;
   end else
-    WR.FileName := Header.DocumentTitle+'.rtf';
+    WR.FileName := Header.DocumentTitle;
+  WR.FileName := WR.FileName+'.rtf';
   if DestinationDir<>'' then  // <>'' -> 'D:\Documents\Product New Version\'
     WR.FileName := DestinationDir+WR.FileName;
 end;
@@ -1072,11 +1096,10 @@ begin
       for i := 0 to high(Parse) do
       with Parse[i] do
         if SameText(SectionNameKind,aSection.SectionNameKind) then begin
-          line := '- '+DisplayName(nil);
-          if withpage then
-            WR.RtfList(RtfLinkTo(SectionNameValue,
-              Line+' '+format(sPageN,[RtfPageRefTo(SectionNameValue,false)]))) else
-            WR.RtfList(line);
+          line := DisplayName(nil);
+          if withpage and WR.HandlePages then
+            line := line+' '+format(sPageN,[WR.RtfPageRefToString(SectionNameValue,false)]);
+          WR.RtfList('- '+WR.RtfLinkToString(SectionNameValue,line));
         end;
     end else
     if IdemPChar(pointer(line),'\LAYOUT') then begin
@@ -1086,10 +1109,10 @@ begin
         line := DILayout.Lines[i];
         if (line<>'') and (line[1]=':') then begin
           line := trim(copy(line,2,maxInt));
-          if withpage then
-            WR.RtfList(RtfLinkTo('Layout_'+line,'- '+Line+
-              ' '+format(sPageN,[RtfPageRefTo('Layout_'+line,false)]))) else
-            WR.RtfList('- '+line);
+          BookMarkName := 'LAYOUT_'+line;
+          if withpage and WR.HandlePages then
+            line := line+' '+format(sPageN,[WR.RtfPageRefToString(BookMarkName,false)]);
+          WR.RtfList('- '+WR.RtfLinkToString(BookMarkName,line));
         end;
       end;
     end else
@@ -1102,10 +1125,10 @@ begin
         RefDoc := DocumentFind(line);
         if RefDoc=nil then continue;
         caption := RefDoc.Params.DisplayName(nil);
-        if withpage then
-          WR.RtfList(RtfLinkTo('Layout_'+line,'- '+caption+
-            ' '+format(sPageN,[RtfPageRefTo('Layout_'+line,false)]))) else
-          WR.RtfList('- '+caption);
+        BookMarkName := 'LAYOUT_'+line;
+        if withpage and WR.HandlePages then
+          caption := caption+' '+format(sPageN,[WR.RtfPageRefToString(BookMarkName,false)]);
+        WR.RtfList('- '+WR.RtfLinkToString(BookMarkName,caption));
       end;
     end else
     if IdemPChar(pointer(line),'\INDEX ') then begin
@@ -1120,7 +1143,7 @@ begin
         if s<>'' then begin
           // KeyWord 1=bookmark0,bookmark1...
           inc(ReferenceIndexIndex);
-          BookMarkName := WR.RtfBookMark('','NDX_'+IntToStr(ReferenceIndexIndex));
+          BookMarkName := WR.RtfBookMark('','NDX_'+IntToStr(ReferenceIndexIndex),true);
           ReferenceIndex.AddCSVValue(s,BookMarkName);
         end;
       until PC=nil;
@@ -1142,7 +1165,7 @@ begin
       end;
       caption := UpperCase(copy(line,1,j));
       inc(ReferenceImplementsIndex);
-      BookMarkName := WR.RtfBookMark('','IMPLEM_'+IntToStr(ReferenceImplementsIndex));
+      BookMarkName := WR.RtfBookMark('','IMPLEM_'+IntToStr(ReferenceImplementsIndex),true);
       s := '';
       with ReferenceImplements.Lines do
         for i := 0 to Count-1 do
@@ -1374,7 +1397,7 @@ begin
       WR.RtfRow(['\b\qc '+TestDoc.Owner.ItemName+' '+sReference,'\ql '+sDescription+'\b0']);
       for i := 0 to n do
       with Tests[i] do
-        WR.RtfRow(['\qc{\i '+RtfLinkTo(SectionNameValue,DisplayName(TestDoc.Owner))+'}',
+        WR.RtfRow(['\qc{\i '+WR.RtfLinkToString(SectionNameValue,DisplayName(TestDoc.Owner))+'}',
           '\ql '+TrimLastPeriod(Owner.ShortDescription(''))]);
       WR.RtfColsEnd;
       // write Special Requirements table
@@ -1391,13 +1414,13 @@ begin
         if (Sec.Root.SectionName=Sec.SectionNameValue) then // if not Sub-Item: write DI
           WR.AddRtfContent(sDescriptionRtfN,[TestDoc.Params.Root.DisplayName(nil)]).
             AddRtfContent(': ').
-            AddWithoutPeriod(Sec.Root.Description).AddRtfContent('.\par'#13);
+            AddWithoutPeriod(Sec.Root.Description).AddRtfContent('.\par'#13#10);
         desc := Sec.Owner['Description'];
         if (desc<>'') then begin
           if desc<>Sec.Root.Description then
             WR.AddRtfContent(sDescriptionRtfN,[TestDoc.Owner.ItemName]).
               AddRtfContent(': ').
-              AddWithoutPeriod(desc).AddRtfContent('.\par'#13);
+              AddWithoutPeriod(desc).AddRtfContent('.\par'#13#10);
         end else begin
           WR.AddRtfContent(sDescriptionRtfN,[TestDoc.Owner.ItemName]).
             AddRtfContent(': ');
@@ -1411,7 +1434,7 @@ begin
         CreateRTFBody(Sec,3,false,false,true);
       end;
       WR.RtfTitle(sProcedureCriteria,1,false);
-      WR.AddRtfContent(sProcedureCriteriaText).AddRtfContent('.\par'#13);
+      WR.AddRtfContent(sProcedureCriteriaText).AddRtfContent('.\par'#13#10);
     end;
     // write Summary Sheet
     WR.RtfEndSection;
@@ -1433,7 +1456,7 @@ begin
           AddRtfContent(' ').AddRtfContent(sVersion).AddRtfContent(' :}{\f1  ________  }{').
           RtfFont(100).AddRtfContent('(').AddRtfContent(sExpected).
           AddRtfContent(': ').AddRtfContent(ValAt(Requirement,1)).
-          AddRtfContent(')}\par'#13);
+          AddRtfContent(')}\par'#13#10);
     end else
     for i := 0 to high(Required) do
       if Required[i] then begin
@@ -1441,7 +1464,7 @@ begin
         AddRtfContent(' ').AddRtfContent(sVersion).
         AddRtfContent(' :}{\f1  ________  }{').RtfFont(100).
         AddRtfContent('(').AddRtfContent(sExpected).AddRtfContent(': ').
-        AddRtfContent(Parse[i]['Version']).AddRtfContent(')}\par'#13);
+        AddRtfContent(Parse[i]['Version']).AddRtfContent(')}\par'#13#10);
       end;
     if OldWord2k then
       WR.AddRtfContent('\ql'#13#10);
@@ -1503,7 +1526,8 @@ begin
           SAD.FillUnits(Parse[i],false);
           // write unit table
           if SAD.Units.Count>0 then begin
-            WR.RtfTitle(title+' '+sSourceCodeImplementation,ParseTitleOffset);
+            WR.RtfTitle(title+' '+sSourceCodeImplementation,ParseTitleOffset,
+              true,'SIDE_'+title);
             WR.RtfTitle(format(sUsedUnitsN,[title]),ParseTitleOffset+1);
             WR.AddRtfContent(sUsedUnitsTextN,[title]);
             SAD.RtfUsesUnits(WR);
@@ -1543,7 +1567,7 @@ begin
               desc := Value['Description'];
               if desc<>'' then begin // Description= for every new document
                 if item<>'' then // write remaining item
-                  WR.AddRtfContent('}:\line'#13+item+'.\par'#13);
+                  WR.AddRtfContent('}:\line'#13+item+'.\par'#13#10);
                 item := '';
                 TestGetDescr(Test.List[j],DIDetails,Test,testdocname,title);
                 WR.RtfTitle(title,2,true,SectionNameValue);
@@ -1563,7 +1587,7 @@ begin
                 Sec := Data[Doc.Owner.SectionName+'-'+SectionNameValue];
                 if (Sec<>nil) then begin
                   if item<>'' then begin
-                    WR.AddRtfContent(sAssociatedItems+'}:\par'#13);
+                    WR.AddRtfContent(sAssociatedItems+'}:\par'#13#10);
                     WR.RtfList('- '+item);
                     item := '';
                   end;
@@ -1574,7 +1598,7 @@ begin
             end;
             if item<>'' then begin // write remaining item
               WR.AddRtfContent(sAssociatedItem+'}:\line'#13+
-                item+'.\par'#13);
+                item+'.\par'#13#10);
               item := '';
             end;
           end;
@@ -1633,7 +1657,7 @@ procedure TProject.CreateRTFDetails(Level: integer; AutoFooter: boolean);
 procedure WriteReferenceTable(OwnerDoc: PDocument);
 var i,j: integer;
     Own: TSection;
-    ident: string;
+    ident,pages,abbrev: string;
 begin
   if OwnerDoc=nil then exit;
   // this document has sub items -> show reference Table (DI->SRS, e.g.)
@@ -1648,7 +1672,7 @@ begin
     [OwnerDoc.Params.SectionName,Doc.Params.SectionName])));
   WR.RtfColsPercent([12,17,62,9],true,true,false,'\trhdr');
   WR.RtfRow(['\qc\b '+OwnerDoc.Params.ItemName+' #',Doc.Params.ItemName+' #',
-    '\ql '+sDescription,'\qc '+sPage+'\b0'],true);
+    '\ql '+sDescription,PageTableHeader],true);
   WR.RtfColsPercent([12,17,62,9],true,true,false,'\trkeep');
   for i := 0 to length(OwnerDoc.List)-1 do begin // for each [DI-*]
     Own := OwnerDoc.List[i];
@@ -1664,9 +1688,12 @@ begin
       ident := Own.SectionName else
     if pos('\line',ident)>0 then
       ident := '{'+WR.RtfFontString(91)+ident+'}';
-    WR.RtfRow(['\qc '+Own.SectionNameValue, ident,
-      '\ql{'+WR.RtfFontString(91)+TrimLastPeriod(Own.Description)+'}',
-      '\qc '+RtfPageRefTo(Own.SectionName,true)]);
+    abbrev := '\qc '+Own.SectionNameValue;
+    if WR.HandlePages then
+      pages := '\qc '+WR.RtfPageRefToString(Own.SectionName,true) else
+      abbrev := WR.RtfLinkToString(Own.SectionName,abbrev);
+    WR.RtfRow([abbrev, ident,
+      '\ql{'+WR.RtfFontString(91)+TrimLastPeriod(Own.Description)+'}',pages]);
   end;
   WR.RtfColsEnd;
 end;
@@ -1718,12 +1745,12 @@ begin
     forceNotVoid := false; // Description='' -> DI details would be written twice
     if (j<high(Doc.List)) and (Doc.List[j+1].Root=DIDetails) then begin // sub items
       WR.AddRtfContent(DesignInputSplit,[Doc.Params.ItemName]).
-        AddRtfContent(':\par'#13);
+        AddRtfContent(':\par'#13#10);
       WR.RtfColsPercent([30,70],false,false,true,'\trkeep');
       for k := j+1 to high(Doc.List) do
       with Doc.List[k] do // for all sub-items:
       if Root=DIDetails then
-        WR.RtfRow(['\qr{\i '+RtfLinkTo(SectionNameValue,DisplayName(Doc.Owner))+'}',
+        WR.RtfRow(['\qr{\i '+WR.RtfLinkToString(SectionNameValue,DisplayName(Doc.Owner))+'}',
           '\ql '+TrimLastPeriod(Owner.ShortDescription(''))+'.']);
       WR.RtfColsEnd;
     end;
@@ -1756,6 +1783,15 @@ procedure AppendBlock(aValue: string; Parent: PDocument);
 var j,k, DetailLevel: integer;
     U, P: PChar;
     aItemName, aItemTitle: string;
+procedure WriteDescRow;
+var aAbbrev,aPages: string;
+begin
+  aAbbrev := '\qc{\i '+ValAt(ExtractFileName(un),0,'.')+'}';
+  if WR.HandlePages then
+    aPages := '\qc '+WR.RtfPageRefToString(un,true) else
+    aAbbrev := WR.RtfLinkToString(un,aAbbrev);
+  WR.RtfRow([aAbbrev,desc,aPages]);
+end;
 begin
   aValue := Parent.Params.SectionName+'-'+aValue; // 'Parent-4.2.1'
   DIDetailsIndex := Parent.GetSectionIndex(aValue);
@@ -1777,13 +1813,12 @@ begin
             Current.SectionNameValue); // 'SRS-Parent-4.2.1' -> BookMark='Parent-4.2.1'
         end;
         WR.AddRtfContent(DesignInputSplit,[Doc.Params.ItemName]).
-          AddRtfContent(':\par'#13).
+          AddRtfContent(':\par'#13#10).
           RtfColsPercent([20,80],false,false,true,'\trkeep');
         for k := j to length(Doc.List)-1 do
         with Doc.List[k] do
         if Owner=DIDetails then
-          WR.RtfRow([RtfBookMark('\qr{\b '+SectionNameValue+'}',
-            SectionNameValue),
+          WR.RtfRow([WR.RtfLinkToString(SectionNameValue,'\qr{\b '+SectionNameValue+'}',false),
             '\ql '+TrimLastPeriod(Description)+'.']);
         WR.RtfColsEnd;
         break;
@@ -1826,7 +1861,7 @@ begin
             WR.RtfPar else
             WR.RtfTitle(title2ndpart,DetailLevel,true);
           WR.AddRtfContent(sTestExtractFromNN,[testdocname,TrimLastPeriod(testdesc,true)]).
-             AddRtfContent('.\par{\sb0\sa0\par}\qj'#13);
+             AddRtfContent('.\par{\sb0\sa0\par}\qj'#13#10);
           CreateRTFBody(Current,DetailLevel,true,false,true); // write Test details
         end else begin
           if Current.HasTitle then begin
@@ -1843,7 +1878,7 @@ begin
         CreateRTFBody(Current,Level+2); // write SDD details
         WR.RtfTitle(title2ndpart,Level+2,true);
         WR.AddRtfContent(ExpandDocumentNames(format(
-          sSameAsN,[Current['SameAs']])+'.\par'#13));
+          sSameAsN,[Current['SameAs']])+'.\par'#13#10));
         continue;
       end else
         WriteOwnerDetails(Level+2,false,Parent); // just rewrite SRS description
@@ -1854,7 +1889,7 @@ begin
           WR.AddRtfContent('{\sb220\b '+sItemModifiedUnits+':\b0\par}');
           WR.RtfFont(92);
           WR.RtfColsPercent([26,66,8],true,true,true,'\trhdr');
-          WR.RtfRow(['\b\qc '+sUnitName,'\ql '+sDescription,'\qc '+sPage+'\b0'],true);
+          WR.RtfRow(['\b\qc '+sUnitName,'\ql '+sDescription,PageTableHeader],true);
           WR.RtfColsPercent([26,66,8],true,true,true,'\trkeep');
           U := pointer(ident);
           while U<>nil do begin
@@ -1876,8 +1911,7 @@ begin
               until false;
               desc := desc+'}.';
             end;
-            WR.RtfRow(['\qc{\i '+ValAt(ExtractFileName(un),0,'.')+'}',
-              desc, '\qc '+RtfPageRefTo(un,true)]);
+            WriteDescRow;
           end;
           WR.RtfColsEnd.RtfFont(100);
         end;
@@ -1886,14 +1920,15 @@ begin
           WR.AddRtfContent('{\sb220\b '+sItemQuotedUnits+':\b0\par}');
           WR.RtfFont(92);
           WR.RtfColsPercent([26,66,8],true,true,true,'\trhdr');
-          WR.RtfRow(['\b\qc '+sUnitName,'\ql '+sDescription,'\qc '+sPage+'\b0'],true);
+          WR.RtfRow(['\b\qc '+sUnitName,'\ql '+sDescription,PageTableHeader],true);
           WR.RtfColsPercent([26,66,8],true,true,true,'\trkeep');
           U := pointer(quoted);
           while U<>nil do begin
             un := GetNextItem(U); // = TPasUnit(p).OutputFileName
-            if CSVContains(ident,un) then continue; // already written
-            WR.RtfRow(['\qc{\i '+ValAt(ExtractFileName(un),0,'.')+'}',
-              '\ql '+Doc.Params[un], '\qc '+RtfPageRefTo(un,true)]);
+            if CSVContains(ident,un) then
+              continue; // already written
+            desc := '\ql '+Doc.Params[un];
+            WriteDescRow;
           end;
           WR.RtfColsEnd.RtfFont(100);
         end;
@@ -1904,6 +1939,7 @@ begin
   end;
 end;
 var P: PChar;
+    aAbbrev,aPages: string;
 begin
   if (Doc=nil) or (Doc.Params.SectionNameValue<>Doc.Params.SectionName) then
     exit; // no details existing for [*-*]
@@ -1948,7 +1984,7 @@ begin
       WR.RtfTitle(ident,Level+1);
     WR.AddRtfContent(ExpandDocumentNames(format(sQuickReferenceTableN,[Doc.Owner.SectionName])));
     WR.RtfColsPercent([17,75,9],true,true,false,'\trhdr');
-    WR.RtfRow(['\qc\b '+Doc.Owner.ItemName+' #','\ql '+sDescription,'\qc '+sPage+'\b0'],true);
+    WR.RtfRow(['\qc\b '+Doc.Owner.ItemName+' #','\ql '+sDescription,PageTableHeader],true);
     WR.RtfColsPercent([17,75,9],true,true,false,'\trkeep');
     for i := 0 to length(OwnerDoc.List)-1 do begin
       if OwnerDoc=DI then
@@ -1957,9 +1993,11 @@ begin
       for j := 0 to length(Doc.List)-1 do // search corresponding item
       if Doc.List[j].SectionNameValue=sec then begin
         // 'SRS-DI-4.1'->'SDD-DI-4.1'
-        WR.RtfRow(['\qc '+WR.RtfGoodSized(sec),
-          '\ql '+TrimLastPeriod(OwnerDoc.List[i].Description),
-          '\qc '+RtfPageRefTo(sec,true)]);
+        aAbbrev := '\qc '+WR.RtfGoodSized(sec);
+        if WR.HandlePages then
+          aPages := '\qc '+WR.RtfPageRefToString(sec,true) else
+          aAbbrev := WR.RtfLinkToString(sec,aAbbrev);
+        WR.RtfRow([aAbbrev,'\ql '+TrimLastPeriod(OwnerDoc.List[i].Description),aPages]);
         break;
       end;
     end;
@@ -2053,8 +2091,7 @@ begin
       if text[j]<=' ' then begin
         HTTP := copy(text,i+1,j-i-1);
         delete(text,i,j-i);
-        insert('{\field{\*\fldinst{HYPERLINK'#13'"'+HTTP+
-          '"'#13'}}{\fldrslt{\ul'#13+HTTP+'..'+'}}}',text,i);
+        insert(WR.RtfHyperlinkString(HTTP,''),text,i);
         break;
       end;
   until false;
@@ -2091,7 +2128,7 @@ begin
             BookMark := 'M'+BookMark;
           end;
           ReferenceIndex.AddCSVValue(DocName,BookMark);
-          DocName := '{\*\bkmkstart '+BookMark+'}'+DocName+'{\*\bkmkend '+BookMark+'}';
+          DocName := WR.RtfBookMarkString(DocName,BookMark,true);
         end else
         if DocName[1]='=' then begin
           // '@=30%bidule.png@' or '@=30%%FirmwareBoot@' -> inlined picture
@@ -2124,8 +2161,10 @@ begin
                 BookMark := LastCSV(BookMark); // already written -> jump to closer = last
               DocName := '{\i '+Caption+'}';
               if BookMark<>'' then
-                DocName := RtfLinkTo(BookMark,DocName+' '+format(
-                  sPageN,[RtfPageRefTo(BookMark,false)]));
+                if WR.HandlePages then
+                  DocName := WR.RtfLinkToString(BookMark,DocName+' '+format(
+                    sPageN,[WR.RtfPageRefToString(BookMark,false)])) else
+                  DocName := WR.RtfLinkToString(BookMark,DocName);
             end;
           end else
           if GetStringIndex(VALID_PROGRAM_EXT, Ext)>=0 then begin
@@ -2142,8 +2181,8 @@ begin
               inc(ReferenceProgramIndex);
               BookMark := 'PROGRAM_'+IntToStr(ReferenceProgramIndex);
               ReferenceProgram.AddCSVValue(DocName,Bookmark);
-              DocName := '{\*\bkmkstart '+BookMark+'}{\f1\fs20 '+ExtractFileName(DocName)+
-                '}{\*\bkmkend '+BookMark+'}';
+              DocName := WR.RtfBookMarkString('{\f1\fs20 '+ExtractFileName(DocName)+'}',
+                BookMark,true);
             end else // already bookmarked -> just add string as Courrier New font
               DocName := '{\f1\fs20 '+ExtractFileName(DocName)+'}';
           end else
@@ -2155,8 +2194,10 @@ begin
               Caption := '{\i '+TitleBookmark[k]+'}' else
               // title is below -> put only page number
               Caption := sBelow;
-            DocName := RtfLinkTo(BookMark, Caption+' '+format(
-                sPageN,[RtfPageRefTo(BookMark,false)]));
+            if WR.HandlePages then
+              DocName := WR.RtfLinkToString(BookMark, Caption+' '+format(
+                sPageN,[WR.RtfPageRefToString(BookMark,false)])) else
+              DocName := WR.RtfLinkToString(BookMark, Caption);
           end;
         end;
       end;
@@ -2168,9 +2209,10 @@ begin
         DocName := '{\i '+aSec.DisplayName(aDoc)+'}';
         if (Doc<>nil) and (aDoc=Doc.Params) and (ForcedOnlySection=nil) then
           // in the same doc -> add hyperlink and page No
-          DocName := RtfLinkTo(aSec.SectionNameValue,
-            DocName+' '+format(
-                sPageN,[RtfPageRefTo(aSec.SectionNameValue,false)]));
+          if WR.HandlePages then
+            DocName := WR.RtfLinkToString(aSec.SectionNameValue,DocName+' '+
+              format(sPageN,[WR.RtfPageRefToString(aSec.SectionNameValue,false)])) else
+            DocName := WR.RtfLinkToString(aSec.SectionNameValue,DocName);
       end;
     end else begin
       // @SRS@ -> 'Software Requirements Specifications (SWRS) document'
@@ -2320,7 +2362,7 @@ begin
 end;
 
 procedure TProject.Footer(WR: TProjectWriter; const FooterTitle: string);
-var conf: string;
+var conf,pages: string;
 begin
   with Header do begin
     LastFooterTitle := FooterTitle;
@@ -2330,8 +2372,9 @@ begin
     if confidential then
       conf := '\ql '+Project.ReadString('Confidential',sCONFIDENTIAL) else
       conf := '';
-    WR.RtfRow([conf,'\qc '+FooterTitle+' - '+sRev+' '+Rev{+', '+DateToStr(Now)},
-      '\qr '+format(sPageNN,[RtfField('PAGE'),RtfField('NUMPAGES')])],true);
+    if WR.HandlePages then
+      pages := '\qr '+format(sPageNN,[WR.RtfField('PAGE'),WR.RtfField('NUMPAGES')]);
+    WR.RtfRow([conf,'\qc '+FooterTitle+' - '+sRev+' '+Rev,pages],true);
     WR.RtfFooterEnd;
   end;
 end;
@@ -2355,7 +2398,7 @@ begin
     [IndexName,Doc.Params.SectionName])));
 end;
 procedure CreateOne(Lines: TStrings; const Title, MatchFirstChars: string);
-var i: integer;
+var i,sequence: integer;
     Line, Name, BookMark, aBookMark, BookMarks: string;
     FirstChar: char;
     P: PChar;
@@ -2371,16 +2414,20 @@ begin
       continue;
     References.SplitNameValue(Line,Name,BookMark);
     P := pointer(BookMark);
+    sequence := 0;
     BookMarks := '';
     while P<>nil do begin
       aBookMark := GetNextItem(P);
       if aBookMark<>'' then begin
+        inc(sequence);
         if (References=ReferenceIndex) and (aBookMark[1]='M') then // main ref
-          aBookMark := '{\b\ul\fs24 '+RtfPageRefTo(aBookMark,true)+'}' else
-          aBookMark := RtfPageRefTo(aBookMark,true);
+          aBookMark := '{\b\ul\fs24 '+WR.RtfPageRefToString(aBookMark,true,false,-sequence)+'}' else
+          aBookMark := WR.RtfPageRefToString(aBookMark,true,false,sequence);
         if BookMarks='' then
           BookMarks := '\qc '+aBookMark else
-          BookMarks := BookMarks+', '+aBookMark;
+          if WR.HandlePages then
+            BookMarks := BookMarks+', '+aBookMark else
+            BookMarks := BookMarks+' '+aBookMark;
       end;
     end;
     if BookMarks='' then
@@ -2406,7 +2453,7 @@ begin
       if References=ReferenceProgram then begin
         WR.RtfBig(format('%s - %s',[title,sSourceReferenceTable]));
         WR.RtfColsPercent([70,30],true,true,false,'\trhdr');
-        WR.RtfRow(['\ql{\f1    }\b '+IndexName,'\qc '+sPage+'\b0'],true);
+        WR.RtfRow(['\ql{\f1    }\b '+IndexName,PageTableHeader],true);
         WR.RtfColsPercent([70,30],true,true,false,'\trkeep');
       end else
       if References=ReferenceIndex then begin
@@ -2414,7 +2461,7 @@ begin
       end else begin
         WRTitle(title);
         WR.RtfColsPercent([80,20],true,true,false,'\trhdr');
-        WR.RtfRow(['\ql\b '+IndexName,'\qc '+sPage+'\b0'],true);
+        WR.RtfRow(['\ql\b '+IndexName,PageTableHeader],true);
         WR.RtfColsPercent([80,20],true,true,false,'\trkeep');
       end;
     end;
@@ -2423,8 +2470,9 @@ begin
         if FirstChar<>' ' then
           WR.RtfColsEnd;
         FirstChar := NormToUpper[Name[1]];
-        WR.RtfColsPercent([100],true,false,false,'\trkeep');
-        WR.RtfRow(['\ql\line{\b\fs30 '+FirstChar+'}'],true);
+        if not WR.HandlePages then
+          WR.RtfLine;
+        WR.RtfColsHeader(FirstChar);
         WR.RtfColsPercent([30,70],true,true,false,'\trkeep');
       end;
       Name[1] := FirstChar; // force uppercase for 1st char in keyword list
@@ -2469,6 +2517,9 @@ begin
     Lines := References.Lines;
     Lines.Sort; // alphabetical sort
   end;
+  if IndexName<>sSourceFileNames then
+    SideBar.RtfLinkTo(WR.RtfBookMark('','INDEX_'+IndexName,false),
+      '{\b '+IndexName+'}').RtfPar;
   title := format(sReferenceTableN,[IndexName]);
   if References=ReferenceProgram then begin
     for i := 0 to Lines.Count-1 do
@@ -2488,9 +2539,22 @@ begin
 end;
 var tmpPos, tmpSize, i, j, Level, TitleMax: integer;
     P: PChar;
-    index, Title, BookMark: string;
+    index, Title, BookMark, css,cssFile: string;
     TOCatBOF: boolean;
 begin
+  if aFormat=fHtml then begin
+    WR.FileName := ChangeFileExt(WR.FileName,'.html');
+    cssFile := ExtractFilePath(WR.FileName)+'synproject.css';
+    if not FileExists(cssFile) then begin
+      with TResourceStream.Create(HInstance,'css','TXT') do
+      try
+        SetString(css,PAnsiChar(Memory),Size);
+      finally
+        Free;
+      end;
+      StringToFile(cssFile,css);
+    end;
+  end;
   if (ReferenceDocuments.Count<>0) and (ReferenceDocumentsPos<>0) then begin
     WR.RtfText; // close any pending {
     tmpPos := WR.Len;
@@ -2502,6 +2566,7 @@ begin
       WR.RtfRow(['\qc '+ItemName,'\ql '+Value['Name'],
         ' '+Value['Revision'],Header.RevDate]);
     WR.RtfColsEnd;
+    WR.Last := lastRtfNone;
     tmpSize := WR.Len-tmpPos;
     WR.MovePortion(tmpPos,ReferenceDocumentsPos,tmpSize);
     if ReferenceTablesPos>ReferenceDocumentsPos then
@@ -2520,46 +2585,67 @@ begin
       ForceFooter(Header.DocumentTitle,true);
     TitleMax := WR.TitlesList.Count-1;
     if TOCatBOF then
-      WR.RtfTitle(sTableOfContents,0,False) else
+      WR.RtfTitle(sTableOfContents,0,false,'TITLE_TABLE') else
     if WR.TitleFlat then begin
       WR.AddRtfContent('{\sb800\fi80\b\shad').RtfFont(160).
         AddRtfContent(sTableofContents+'\par}');
     end else
-      WR.RtfTitle(sTableOfContents,0,false);
+      WR.RtfTitle(sTableOfContents,0,false,'TITLE_TABLE');
     WR.TitleWidth := WR.IndentWidth;
     WR.TitleLevelCurrent := 3; // force indent the RtfCols
-    WR.RtfColsPercent([70,15],true,false,true,'\trkeep');
+    if WR.HandlePages then
+      WR.RtfColsPercent([70,15],true,false,true,'\trkeep') else begin
+      WR.RtfText;
+      SideBar.RtfLinkTo('TITLE_TABLE','{\b '+sTableOfContents+'}').RtfLine.
+        AddRtfContent(#1'<small>'#1);
+    end;
     with WR.TitlesList do
     for i := 0 to TitleMax do begin
       Title := Strings[i]; // 'Title|BOOKMARK'
       BookMark := ValAt(Title,1,'|');
-      if BookMark<>'' then
-        BookMark := '\qc\li0\fi0'+RtfPageRefTo(BookMark,true);
+      if (BookMark<>'') and WR.HandlePages then
+        BookMark := '\qc\li0\fi0'+WR.RtfPageRefToString(BookMark,true);
       Title := ValAt(Title,0,'|');
       Level := pred(integer(Objects[i]));
       if Level<2 then
         Title := WR.RtfFontString(130-Level*15)+Title;
-      if Level<3 then
+      if (WR.HandlePages and (Level<3)) or ((not WR.HandlePages) and (Level=0)) then
         Title := '{\b '+Title+'}';
       if Level=0 then begin
-        if (i<Count-2) and (integer(Objects[i+1])<>1) then
-          BookMark := ''; // no page index only if sub items
+        if (i<Count-2) and (integer(Objects[i+1])<>1) and WR.HandlePages then
+          BookMark := ''; // no page index if only sub items
         for j := 0 to WR.ColsCount-1 do
           if (Level=0) and (BookMark='') then begin
             inc(Level); // bottom line if any sub items
             WR.RtfColVertAlign(j,taRightJustify,true); // DrawBottomLine=true
           end else
             WR.RtfColVertAlign(j,taRightJustify,false);
-        WR.RtfRow(['\li0\fi0\ql'+Title,BookMark]);
+        if WR.HandlePages then
+          WR.RtfRow(['\li0\fi0\ql'+Title,BookMark]);
         for j := 0 to WR.ColsCount-1 do
           WR.RtfColVertAlign(j,taCenter); // restore Vertical center alignment
       end else begin
-        WR.RtfRow([format('\ql\fi-%d\li%d %s',
-          [WR.IndentWidth,Level*WR.IndentWidth,Title]), BookMark]);
+        if WR.HandlePages then
+          WR.RtfRow([format('\ql\fi-%d\li%d %s',
+            [WR.IndentWidth,Level*WR.IndentWidth,Title]), BookMark]);
+      end;
+      if not WR.HandlePages then begin
+        if (Level=0) and (i>0) then begin
+          WR.RtfPar.RtfBookMark('','SIDE_'+BookMark,false);
+          SideBar.RtfLinkTo('SIDE_'+BookMark,ValAt(Strings[i],0,'|')).RtfLine;
+        end else
+        for j := 1 to Level do
+          WR.AddRtfContent(#1'&nbsp;'#1);
+        WR.RtfLinkTo(BookMark,Title).RtfLine;
       end;
     end;
     WR.TitleWidth := 0;
-    WR.RtfColsEnd.RtfParDefault;
+    if WR.HandlePages then
+      WR.RtfColsEnd else begin
+      WR.RtfPar;
+      SideBar.AddRtfContent(#1'</small>'#1).RtfPar;
+    end;
+    WR.RtfParDefault;
   end;
   if (ForcedOnlySection=nil) and (ReferenceTablesPos>0) then begin // create indexes
     P := pointer(Doc.Params['DocumentIndex']);
@@ -2585,6 +2671,14 @@ begin
   if tmpPos<>0 then begin
     WR.RtfPage; // last moved block to the beginning must end with \page
     WR.MovePortion(tmpPos,ReferenceTablesPos,WR.Len-tmpPos);
+  end;
+  if WRClass=THTML then begin
+    SideBar.AddRtfContent(#1#13#10'</div></div>'#13#10+
+      '<div class="document"><div class="documentwrapper">'+
+      '<div class="bodywrapper"><div class="body">'#13#10#1);
+    tmpPos := WR.Len;
+    SideBar.SaveToWriter(WR);
+    WR.MovePortion(tmpPos,0,WR.Len-tmpPos);
   end;
   WR.SaveToFile(aFormat,OldWord2k); // Save=true
   if CreatedDocuments='' then
@@ -2641,31 +2735,23 @@ begin
         BookMark := 'PICTURE_'+IntToStr(ReferencePicturesIndex);
       end;
       ReferencePictures.AddCSVValue(result,BookMark);
-      caption := '{\*\bkmkstart '+BookMark+'}\line'+
-        WR.RtfFontString(88)+'\i '+caption+'{\*\bkmkend '+BookMark+'}';
+      caption := WR.RtfBookMarkString('\line'+WR.RtfFontString(88)+'\i '+caption,
+        BookMark,true);
     end;
     result := result+' '+Coords; // 796x729 100%
   end;
 end;
 
-const
-  PICEXTTORTF: array[0..high(VALID_PICTURES_EXT)] of string =
-    ('jpeg','jpeg','png','emf');
 
 function TProject.PictureInlined(const ButtonPicture: string; Percent: integer;
   WriteBinary: boolean): AnsiString;
 var P: PChar;
     Code: integer;
     Image, caption, Coords: string;
-    Map: TMemoryMap;
-    w,h, Ext: integer;
-    aFileName, iWidth, iHeight, content: string;
-    Logo: boolean;
 begin // '30%bidule.png' or '30%%FirmwareBoot' -> inlined picture
   result := '';
   P := pointer(ButtonPicture);
   if Percent=0 then begin
-    Logo := false;
     val(GetNextItem(P,'%'),Percent,Code);;
     if (Code<>0) or (cardinal(Percent)>100) then
       exit;
@@ -2677,36 +2763,12 @@ begin // '30%bidule.png' or '30%%FirmwareBoot' -> inlined picture
     end else
       Image := PictureFullLine(P,caption);
   end else begin
-    logo := true;
+    Percent := 0;
     Image := ButtonPicture;
     PictureCaption(Image,@Coords);
     Image := Image+' '+Coords;
   end;
-  if ImageSplit(Image, aFileName, iWidth, iHeight, w,h,Code,ext) then
-  if Map.DoMap(aFileName) or Map.DoMap(WR.PicturePath+aFileName) then
-  try
-    if logo then
-      percent := Code; // TProject.HeaderOnly will use default width %
-    percent := (WR.Width*percent) div 100;
-    h := (h*percent) div w;
-    if WriteBinary then begin
-      SetString(content,PAnsiChar(Map.buf),Map._size);
-      content := '\bin'+IntToStr(Map._size)+' '+content;
-    end else begin
-      SetLength(content,Map._size*2);
-      Map.ToHex(pointer(content));
-    end;
-    if not logo then
-      result := '\qc' else
-      result := '\qr';
-    result := result+'{\pict\'+PICEXTTORTF[ext]+'blip\picw'+iWidth+'\pich'+iHeight+
-      '\picwgoal'+IntToStr(percent)+'\pichgoal'+IntToStr(h)+
-      ' '+content+'}';
-    if not logo and (caption<>'') then
-      result := WR.RtfFontString(50)+result+'\line '+caption+WR.RtfFontString(100);
-  finally
-    Map.UnMap;
-  end;
+  result := WR.RtfImageString(Image,caption,WriteBinary,Percent);
 end;
 
 function TProject.GetPeopleFunction(const PeopleName, Default: string): string;

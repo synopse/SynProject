@@ -57,6 +57,8 @@ uses
 type
   PStringWriter = ^TStringWriter;
   TStringWriter = object
+  public
+    len: integer;
   private
     // tmp variable used in Add()
     sLen: integer;
@@ -66,8 +68,6 @@ type
     function GetData: string;
     // returns fData without SetLength(fData,len)
     function GetDataPointer: pointer;
-  public
-    len: integer;
   public
     function Init: PStringWriter; overload;
     function Init(GrowBySize: integer): PStringWriter; overload;
@@ -127,7 +127,7 @@ type
       lastRtfImage, lastRtfCols, lastRtfList);
   TTitleLevel = array[0..6] of integer;
   TProjectWriterClass = class of TProjectWriter;
-  TSaveFormat = (fNoSave,fDoc,fPdf);
+  TSaveFormat = (fNoSave,fDoc,fPdf,fHtml);
 
   TProjectLayout = record
     Page: record
@@ -140,18 +140,22 @@ type
 
   TProjectWriter = class
   protected
-    WR: TStringWriter;
     FontSize: integer; // font size
+    WR: TStringWriter;
     fLast: TLastRTF;
     fLastWasRtfPage: boolean;
+    fLastWasRtfPageInRtfTitle: boolean;
+    fBookmarkInRtfTitle: string;
+    fInRtfTitle: string;
     fLandscape, fKeyWordsComment: boolean;
+    fStringPlain: boolean;
     // set by RtfCols():
     fCols: string; // string to be added before any row
     fColsCount: integer;
-    procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer = 80); virtual;
+    procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer = 80); virtual; abstract;
     procedure SetLast(const Value: TLastRTF); virtual; abstract;
     procedure SetLandscape(const Value: boolean); virtual;
-    constructor InternalCreate;
+    constructor InternalCreate; virtual;
   public
     Layout: TProjectLayout;
     Width: integer; // paragraph width in twips
@@ -162,11 +166,13 @@ type
     LastTitleBookmark: string;
     MaxTitleOutlineLevel: integer;
     PicturePath: string;
+    DestPath: string;
     TitlesList: TStringList; // <>nil -> RtfTitle() add one (TitleList.Free in Caller)
     TitleFlat: boolean; // true -> Titles are all numerical with no big sections
     FullTitleInTableOfContent: boolean; // true -> Title contains also \line...
     ListLine: boolean; // true -> \line, not \par in RtfList()
     FileName: TFileName;
+    HandlePages: boolean;
     constructor Create(const aLayout: TProjectLayout;
       aDefFontSizeInPts: integer; // in points
       aCodePage: integer = 1252;
@@ -174,7 +180,7 @@ type
       aLandscape: boolean = false; aCloseManualy: boolean = false;
       aTitleFlat: boolean = false; const aF0: string = 'Calibri';
       const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); virtual;
-    class function CreateFrom(aParent: TProjectWriter): TProjectWriter;
+    function Clone: TProjectWriter; virtual;
     // if CloseManualy was true
     procedure InitClose; virtual; abstract;
     procedure SaveToFile(Format: TSaveFormat; OldWordOpen: boolean); virtual; abstract;
@@ -187,9 +193,10 @@ type
     function RtfLine: TProjectWriter; virtual; abstract;
     procedure RtfPage; virtual; abstract;
     function RtfPar: TProjectWriter; virtual; abstract;
-    function RtfImage(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
-      const Caption: string = ''; WriteBinary: boolean = true;
-      const RtfHead: string = '\li0\fi0\qc'): TProjectWriter; virtual; abstract;
+    function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
+      const Caption: string; WriteBinary: boolean; perc: integer): string; virtual; abstract;
+    function RtfImage(const Image: string; const Caption: string = '';
+      WriteBinary: boolean=true; const RtfHead: string='\li0\fi0\qc'): TProjectWriter; virtual; abstract;
     /// if line is displayed as code, add it and return true
     function RtfCode(const line: string): boolean;
     procedure RtfPascal(const line: string; aFontSize: integer = 80);
@@ -199,15 +206,15 @@ type
     procedure RtfListing(const line: string);
     procedure RtfSgml(const line: string);
     procedure RtfModula2(const line: string);
-    procedure RtfColLine(const line: string); virtual; 
+    procedure RtfColLine(const line: string); virtual;
     procedure RtfCols(const ColXPos: array of integer; FullWidth: integer;
-      VertCentered, withBorder: boolean;
-      const RowFormat: string = ''); virtual; abstract;
+      VertCentered, withBorder: boolean; const RowFormat: string = ''); virtual; abstract;
+    procedure RtfColsHeader(const text: string); virtual; abstract;
     // RowFormat can be '\trkeep' e.g.
     procedure RtfColsPercent(ColWidth: array of integer;
       VertCentered, withBorder: boolean;
       NormalIndent: boolean = false;
-      RowFormat: string = ''); virtual; 
+      RowFormat: string = ''); virtual;
     // left=top, middle=center, right=bottom
     // must have been created with VertCentered=true
     procedure RtfColVertAlign(ColIndex: Integer; Align: TAlignment; DrawBottomLine: boolean=False);
@@ -221,25 +228,29 @@ type
     procedure RtfFooterBegin(aFontSize: integer); virtual; abstract;
     procedure RtfFooterEnd; virtual; abstract;
     procedure RtfTitle(Title: string; LevelOffset: integer = 0;
-      withNumbers: boolean = true; Bookmark: string = ''); // level-indentated
-      virtual; abstract;
-    function RtfBookMark(const Text, BookmarkName: string): string; // returns bookmarkreal
-      virtual; abstract;
+      withNumbers: boolean = true; Bookmark: string = ''); virtual; // level-indentated
+    function RtfBookMark(const Text, BookmarkName: string;
+      bookmarkNormalized: boolean): string;
+    function RtfBookMarkString(const Text, BookmarkName: string;
+      bookmarkNormalized: boolean): string; virtual; abstract;
     function RtfLinkTo(const aBookName, aText: string): TProjectWriter;
-      virtual; abstract;
-    function RtfPageRefTo(aBookName: string; withLink: boolean; BookMarkAlreadyComputed: boolean): TProjectWriter;
-      virtual; abstract;
-    procedure RtfSubTitle(const Title: string); // Title is put without numbers
-      virtual; abstract;
-    function RtfFont(SizePercent: integer): TProjectWriter; // change font size % DefFontSize
-      virtual; abstract;
-    function RtfFontString(SizePercent: integer): string; // idem with string
-      virtual; abstract;
+    function RtfPageRefTo(aBookName: string; withLink: boolean): TProjectWriter;
+    function RtfField(const FieldName: string): string; virtual; abstract;
+    function RtfLinkToString(const aBookName, aText: string;
+      bookmarkNormalized: boolean=false): string; virtual; abstract;
+    function RtfHyperlinkString(const http,text: string): string; virtual; abstract;
+    function RtfPageRefToString(aBookName: string; withLink: boolean;
+      BookMarkAlreadyComputed: boolean=false; Sequence: Integer=0): string; virtual; abstract;
+      // Title is put without numbers
+    procedure RtfSubTitle(const Title: string); virtual; abstract;
+    // change font size % DefFontSize
+    function RtfFont(SizePercent: integer): TProjectWriter;
+    function RtfFontString(SizePercent: integer): string; virtual; abstract;
     function RtfBig(const text: string): TProjectWriter; // \par + bold + 110% size + \par
       virtual; abstract;
     function RtfGoodSized(const Text: string): string; virtual; abstract;
     procedure SetInfo(const aTitle, aAuthor, aSubject, aManager, aCompany: string); virtual; abstract;
-    procedure Clear;
+    procedure Clear; virtual;
     procedure SaveToWriter(aWriter: TProjectWriter);
     procedure MovePortion(sourcePos, destPos, aLen: integer);
     function Data: string;
@@ -253,6 +264,7 @@ type
   protected
     procedure SetLast(const Value: TLastRTF); override;
     procedure SetLandscape(const Value: boolean); override;
+    procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer=80); override;
   public
     constructor Create(const aLayout: TProjectLayout;
       aDefFontSizeInPts: integer; // in points
@@ -269,13 +281,14 @@ type
     procedure RtfPage; override;
     function RtfLine: TProjectWriter; override;
     function RtfPar: TProjectWriter; override;
-    function RtfImage(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
-      const Caption: string = ''; WriteBinary: boolean = true;
-      const RtfHead: string = '\li0\fi0\qc'): TProjectWriter; override;
+    function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
+      const Caption: string; WriteBinary: boolean; perc: integer): string; override;
+    function RtfImage(const Image: string; const Caption: string = '';
+      WriteBinary: boolean = true; const RtfHead: string = '\li0\fi0\qc'): TProjectWriter; override;
     /// if line is displayed as code, add it and return true
     procedure RtfCols(const ColXPos: array of integer; FullWidth: integer;
-      VertCentered, withBorder: boolean;
-      const RowFormat: string = ''); override;
+      VertCentered, withBorder: boolean; const RowFormat: string = ''); override;
+    procedure RtfColsHeader(const text: string); override;
     procedure RtfRow(const Text: array of string; lastRow: boolean=false); // after RtfCols
       override;
     function RtfColsEnd: TProjectWriter; override;
@@ -289,14 +302,16 @@ type
     procedure RtfTitle(Title: string; LevelOffset: integer = 0;
       withNumbers: boolean = true; Bookmark: string = ''); override;
     // returns bookmarkreal
-    function RtfBookMark(const Text, BookmarkName: string): string; override;
-    function RtfLinkTo(const aBookName, aText: string): TProjectWriter; override;
-    function RtfPageRefTo(aBookName: string; withLink: boolean;
-      BookMarkAlreadyComputed: boolean): TProjectWriter; override;
+    function RtfBookMarkString(const Text, BookmarkName: string;
+      bookmarkNormalized: boolean): string; override;
+    function RtfLinkToString(const aBookName, aText: string;
+      bookmarkNormalized: boolean): string; override;
+    function RtfField(const FieldName: string): string; override;
+    function RtfHyperlinkString(const http,text: string): string; override;
+    function RtfPageRefToString(aBookName: string; withLink: boolean;
+      BookMarkAlreadyComputed: boolean; Sequence: integer): string; override;
     // Title is put without numbers
     procedure RtfSubTitle(const Title: string); override;
-    // change font size % DefFontSize
-    function RtfFont(SizePercent: integer): TProjectWriter; override;
     // idem with string
     function RtfFontString(SizePercent: integer): string; override;
     // \par + bold + 110% size + \par
@@ -306,7 +321,8 @@ type
   end;
 
   THtmlTag = (hBold, hItalic, hUnderline, hCode, hBR, hBRList, hNavy, hNavyItalic,
-    hNbsp, hPre, hAHRef, hTable, hTD, hTR, hP, hTitle, hHighlight, hLT, hGT);
+    hNbsp, hPre, hAHRef, hTable, hTD, hTR, hP, hTitle, hHighlight, hLT, hGT, hAMP,
+    hUL, hLI, hH, hTBody, hTHead, hTH);
   THtmlTags = set of THtmlTag;
   THtmlTagsSet = array[boolean,THtmlTag] of AnsiString;
 
@@ -316,12 +332,18 @@ type
     Current: THtmlTags;
     InTable, HasLT: boolean;
     Stack: array[0..20] of THtmlTags; // stack to handle { }
-    fHeaderWritten: boolean;
+    fColsAreHeader: boolean;
+    fColsMD: TIntegerDynArray;
     fContent,fAuthor,fTitle: string;
+    fSavedWriter: TStringWriter;
+    constructor InternalCreate; override;
     procedure SetLast(const Value: TLastRTF); override;
+    procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer=80); override;
     procedure SetLandscape(const Value: boolean); override;
-    procedure WriteAsHtml(P: PAnsiChar);
-    procedure EnsureHeaderWritten;
+    procedure WriteAsHtml(P: PAnsiChar; W: PStringWriter);
+    function ContentAsHtml(const text: string): string;
+    procedure SetCurrent(W: PStringWriter);
+    procedure OnError(msg: string; const args: array of const);
   public
     constructor Create(const aLayout: TProjectLayout;
       aDefFontSizeInPts: integer; // in points
@@ -332,21 +354,22 @@ type
       const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); override;
     procedure InitClose; override; // if CloseManualy was true
     procedure SaveToFile(Format: TSaveFormat; OldWordOpen: boolean); override;
+    procedure Clear; override;
 
     function AddRtfContent(const s: string): TProjectWriter; override;
     procedure RtfList(line: string); override;
     procedure RtfPage; override;
     function RtfLine: TProjectWriter; override;
     function RtfPar: TProjectWriter; override;
-    function RtfImage(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
-      const Caption: string = ''; WriteBinary: boolean = true;
-      const RtfHead: string = '\li0\fi0\qc'): TProjectWriter; override;
+    function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
+      const Caption: string; WriteBinary: boolean; perc: integer): string; override;
+    function RtfImage(const Image: string; const Caption: string = '';
+      WriteBinary: boolean = true; const RtfHead: string = '\li0\fi0\qc'): TProjectWriter; override;
     /// if line is displayed as code, add it and return true
     procedure RtfCols(const ColXPos: array of integer; FullWidth: integer;
-      VertCentered, withBorder: boolean;
-      const RowFormat: string = ''); override;
-    procedure RtfRow(const Text: array of string; lastRow: boolean=false); // after RtfCols
-      override;
+      VertCentered, withBorder: boolean; const RowFormat: string = ''); override;
+    procedure RtfColsHeader(const text: string); override;
+    procedure RtfRow(const Text: array of string; lastRow: boolean=false); override;
     function RtfColsEnd: TProjectWriter; override;
     procedure RtfEndSection; override;
     function RtfParDefault: TProjectWriter; override;
@@ -355,22 +378,18 @@ type
     procedure RtfFooterBegin(aFontSize: integer); override;
     procedure RtfFooterEnd; override;
     procedure RtfTitle(Title: string; LevelOffset: integer = 0;
-      withNumbers: boolean = true; Bookmark: string = ''); // level-indentated
-      override;
-    function RtfBookMark(const Text, BookmarkName: string): string; // returns bookmarkreal
-      override;
-    function RtfLinkTo(const aBookName, aText: string): TProjectWriter;
-      override;
-    function RtfPageRefTo(aBookName: string; withLink: boolean; BookMarkAlreadyComputed: boolean): TProjectWriter;
-      override;
-    procedure RtfSubTitle(const Title: string); // Title is put without numbers
-      override;
-    function RtfFont(SizePercent: integer): TProjectWriter; // change font size % DefFontSize
-      override;
-    function RtfFontString(SizePercent: integer): string; // idem with string
-      override;
-    function RtfBig(const text: string): TProjectWriter; // \par + bold + 110% size + \par
-      override;
+      withNumbers: boolean = true; Bookmark: string = ''); override;
+    function RtfBookMarkString(const Text, BookmarkName: string;
+      bookmarkNormalized: boolean): string; override;
+    function RtfLinkToString(const aBookName, aText: string;
+      bookmarkNormalized: boolean): string; override;
+    function RtfField(const FieldName: string): string; override;
+    function RtfHyperlinkString(const http,text: string): string; override;
+    function RtfPageRefToString(aBookName: string; withLink: boolean;
+      BookMarkAlreadyComputed: boolean; Sequence: integer): string; override;
+    procedure RtfSubTitle(const Title: string); override;
+    function RtfFontString(SizePercent: integer): string; override;
+    function RtfBig(const text: string): TProjectWriter; override;
     function RtfGoodSized(const Text: string): string; override;
     procedure SetInfo(const aTitle, aAuthor, aSubject, aManager, aCompany: string); override;
   end;
@@ -384,12 +403,8 @@ type
 
 
 function TrimLastPeriod(const s: string; FirstCharLower: boolean = false): string; // delete last '.'
-function RtfField(const FieldName: string): string; // RtfField('PAGE')
 function RtfBackSlash(const Text: string): string; // RtfBackSlash('C:\Dir\')='C:\\Dir\\'
 function RtfBookMarkName(const Name: string): string; // bookmark name compatible
-function RtfBookMark(const Text, BookMarkName: string): string; // bookmark some Text
-function RtfLinkTo(const aBookName, aText: string): string;
-function RtfPageRefTo(aBookName: string; withLink: boolean): string;
 function MM2Inch(mm: integer): integer; // MM2Inch(210)=11905
 function Hex32(const C: cardinal): string; // return the hex value of a cardinal
 function BookMarkHash(const s: string): string;
@@ -464,14 +479,16 @@ const
 
   XMLKEYWORDS: array[0..0] of string = ('');
 
-  RTFEndToken: set of AnsiChar = [#0..#254]-['A'..'Z','a'..'z','0'..'9'];
+  RTFEndToken: set of AnsiChar = [#0..#254]-['A'..'Z','a'..'z','0'..'9','-'];
 
   HTML_TAGS: THtmlTagsSet = (
     ('<b>','<i>','<u>','<code>','<br>','<li>','<font color="navy">','<font color="navy"><i>',
       '&nbsp;','<pre>','<a href="%s">','<table>','<td>','<tr>','<p>','<h3>',
-      '<span style="background-color:yellow;">','&lt;','&gt;'),
+      '<span style="background-color:yellow;">','&lt;','&gt;','&amp;','<ul>','<li>',
+      '<h%d>','<tbody><tr>','<thead><tr>','<th>'),
     ('</b>','</i>','</u>','</code>','','','</font>','</i></font>',
-      '','</pre>','</a>','</table>','</td>','</tr>','</p>','</h3>'#13#10,'</span>','',''));
+      '','</pre>','</a>','</table>','</td>','</tr>','</p>','</h3>'#13#10,'</span>',
+      '','','','</ul>','</li>','</h%d>','</tr></tbody>','</tr></thead>','</th>'));
 
   // format() parameters: [QuotedContent,QuotedAuthor,EscapedPageTitle]
   BOOTSTRAP_HEADER =
@@ -484,14 +501,16 @@ const
         '<meta name="description" content=%s>' + #13#10 +
         '<meta name="author" content=%s>' + #13#10 +
         '<title>%s</title>' + #13#10 +
-        '<link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">' + #13#10 +
-        '<link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">' + #13#10 +
-        '<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>' + #13#10 +
-      '</head>' + #13#10 +
+        '<link rel="stylesheet" href="synproject.css">'#13#10+
+        //'<link rel="stylesheet" href="https://docs.python.org/3.5/_static/pydoctheme.css">'#13#10+
+        //'<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap.min.css">' + #13#10 +
+        '<link href="file:///D:/Dev/Lib/SQLite3/Samples/30 - MVC Server/Views/.static/blog.css" rel="stylesheet">'+
+        //'<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap-theme.min.css">' + #13#10 +
+        //'<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.0/js/bootstrap.min.js"></script>' + #13#10 +
+      '</head>'#13#10 +
       '<body>';
   BOOTSTRAP_FOOTER =
-      '</body>'#13#10 +
-      '</html>';
+      #13#10'</div></div></div>'#13#10'</body></html>';
 
 procedure CSVValuesAddToStringList(const aCSV: string; List: TStrings); overload;
 // add all values in aCSV into List[]
@@ -509,6 +528,25 @@ uses
   ActiveX, ComObj, Variants,
 {$endif}
   ProjectDiff; // for TMemoryMap
+
+
+function TrimLastPeriod(const s: string; FirstCharLower: boolean = false): string;
+begin
+  if s='' then
+    result := '' else begin
+    if s[length(s)]<>'.' then
+      result := s else
+      result := copy(s,1,length(s)-1);
+    if FirstCharLower then
+      result[1] := NormToLower[result[1]];
+  end;
+end;
+
+function MM2Inch(mm: integer): integer;
+// MM2Inch(210)=11905 : A4 width paper size
+begin
+  result := ((1440*1000)*mm) div 25400;
+end;
 
 
 { THeapMemoryStream = faster TMemoryStream using FastMM4 heap, not windows.GlobalAlloc() }
@@ -1215,42 +1253,6 @@ begin
     result := true;
 end;
 
-function TRTF.RtfImage(const Image: string;
-  const Caption: string = ''; WriteBinary: boolean = true;
-  const RtfHead: string = '\li0\fi0\qc'): TProjectWriter;
-// 'SAD-4.1-functions.png 1101x738 85%' (100% default width)
-var Map: TMemoryMap;
-    w,h, percent, Ext: integer;
-    aFileName, iWidth, iHeight: string;
-begin
-  result := self;
-  if ImageSplit(Image, aFileName, iWidth, iHeight, w,h,percent,ext) then
-  if Map.DoMap(aFileName) or Map.DoMap(PicturePath+aFileName) then
-  try
-    // write to
-    Last := lastRtfImage;
-    WR.Add('{').Add(RtfHead).AddShort('{\pict\');
-    case Ext of
-    0,1: WR.AddShort('jpegblip\picw');
-      2: WR.AddShort('pngblip\picw');
-      3: WR.AddShort('emfblip\picw');
-    end;
-    WR.Add(iWidth).AddShort('\pich').Add(iHeight);
-    percent := (Width*percent) div 100;
-    h := (h*percent) div w;
-    WR.AddShort('\picwgoal').AddInteger(percent).AddShort('\pichgoal').AddInteger(h);
-    if WriteBinary then
-      WR.AddShort('\bin').AddInteger(Map._size).Add(' ').Add(PAnsiChar(Map.buf),Map._size) else
-      WR.Add(' ').AddHexBuffer(PByte(Map.buf), Map._size);
-    WR.AddShort('}\line ');
-    if Caption<>'' then
-      WR.Add(Caption).AddShort('\par');
-    WR.AddShort('}'#13);
-  finally
-    Map.UnMap;
-  end;
-end;
-
 function TStringWriter.AddHexBuffer(value: PByte; Count: integer): PStringWriter;
 var Dst: PChar;
     i: integer;
@@ -1275,14 +1277,17 @@ procedure TStringWriter.SaveToFile(const aFileName: String);
 var F: TFileStream;
 begin
   F := TFileStream.Create(aFileName,fmCreate);
-  SaveToStream(F);
-  F.Free;
+  try
+    SaveToStream(F);
+  finally
+    F.Free;
+  end;
 end;
 
 
 function TStringWriter.GetPortion(aPos, aLen: integer): string;
 begin
-  SetString(result,PChar(@fData[aPos]),aLen);
+  result := Copy(fData,aPos,aLen);
 end;
 
 procedure TStringWriter.MovePortion(sourcePos, destPos, aLen: integer);
@@ -1296,6 +1301,361 @@ begin
 end;
 
 
+{ TProjectWriter }
+
+constructor TProjectWriter.Create(const aLayout: TProjectLayout;
+  aDefFontSizeInPts, aCodePage, aDefLang: integer; aLandscape,
+  aCloseManualy, aTitleFlat: boolean; const aF0, aF1: string;
+  aMaxTitleOutlineLevel: integer);
+begin
+  InternalCreate;
+  aDefFontSizeInPts := aDefFontSizeInPts*2;
+  FontSize := aDefFontSizeInPts;
+  fLandscape := aLandscape;
+  Layout := aLayout;
+  if LandScape then begin
+    Layout.Page.Width := aLayout.Page.Height;
+    Layout.Page.Height := aLayout.Page.Width;
+  end;
+  Width := Layout.Page.Width-Layout.Margin.Left-Layout.Margin.Right;
+  TitleFlat := aTitleFlat;
+  TitleWidth := 0;     // title indetation gap (default 0 twips)
+  IndentWidth := 240;  // list or title first line indent (default 240 twips)
+  if not TitleFlat then
+    TitleLevel[0] := -1; // introduction = first chapter = no number
+  MaxTitleOutlineLevel := aMaxTitleOutlineLevel;
+  // inherited should finish with:  if not CloseManualy then InitClose;
+end;
+
+procedure TProjectWriter.Clear;
+begin
+  WR.len := 0;
+end;
+
+procedure TProjectWriter.SaveToWriter(aWriter: TProjectWriter);
+begin
+  WR.SaveToWriter(aWriter.WR);
+end;
+
+function TProjectWriter.Clone: TProjectWriter;
+begin
+  result := TProjectWriterClass(ClassType).InternalCreate;
+  result.FontSize := FontSize;
+end;
+
+constructor TProjectWriter.InternalCreate;
+begin
+  WR.Init;
+end;
+
+function TProjectWriter.AddRtfContent(const fmt: string;
+  const params: array of const): TProjectWriter;
+begin
+  result := AddRtfContent(format(fmt,params));
+end;
+
+function TProjectWriter.AddWithoutPeriod(const s: string;
+  FirstCharLower: boolean): TProjectWriter;
+var tmp: string;
+    L: integer;
+begin
+  result := self;
+  if s='' then
+    exit;
+  L := length(s);
+  if s[L]<>'.' then
+    tmp := s else
+    if L=1 then
+      exit else
+      SetString(tmp,PChar(pointer(s)),L-1);
+  if FirstCharLower then
+    tmp[1] := NormToLower[tmp[1]] else
+    tmp[1] := NormToUpper[tmp[1]];
+  AddRtfContent(tmp);
+end;
+
+procedure TProjectWriter.SetLandscape(const Value: boolean);
+begin
+  fLandscape := Value;
+end;
+
+procedure TProjectWriter.MovePortion(sourcePos, destPos, aLen: integer);
+begin
+  WR.MovePortion(sourcePos+1,destPos+1,aLen);
+end;
+
+function TProjectWriter.Data: string;
+begin
+  result := WR.Data;
+end;
+
+function TProjectWriter.RtfText: TProjectWriter;
+begin
+  SetLast(lastRtfText); // set Last -> update any pending {} (LastRtfList e.g.)
+  fKeyWordsComment := false; // force end of comments
+  result := self;
+end;
+
+procedure TProjectWriter.RtfColVertAlign(ColIndex: Integer;
+  Align: TAlignment; DrawBottomLine: boolean);
+var i, j: integer;
+begin
+  j := 1;
+  for i := 0 to ColIndex do begin
+   j := PosEx('\clvertal',fCols,j)+9;
+   if j=9 then exit;
+  end;
+  case Align of // left=top, middle=center, right=bottom
+    taLeftJustify:  fCols[j] := 't';
+    taCenter:       fCols[j] := 'c';
+    taRightJustify: fCols[j] := 'b';
+  end;
+  if DrawBottomLine then
+    insert('\clbrdrb\brdrs\brdrcf9\brdrw24\brsp24',fCols,j-9) else
+    if IdemPChar(@fCols[j-46],'\CLBRDR') then
+      Delete(fCols,j-46,37);
+end;
+
+procedure TProjectWriter.RtfColsPercent(ColWidth: array of integer;
+  VertCentered, withBorder, NormalIndent: boolean;
+  RowFormat: string);
+var x, w, i, ww: integer;
+begin
+  if NormalIndent then begin
+    x := TitleWidth*pred(TitleLevelCurrent);
+    ww := Width-x;
+    if x<>0 then
+      RowFormat := RowFormat+'\trleft'+IntToStr(x);
+  end else begin
+    x := 0;
+    ww := Width;
+  end;
+  for i := 0 to high(ColWidth) do begin
+    w := (ww*ColWidth[i]) div 100;
+    inc(x,w);
+    ColWidth[i] := x;
+  end;
+  RtfCols(ColWidth, ww, VertCentered, withBorder, RowFormat);
+end;
+
+function TProjectWriter.RtfCode(const line: string): boolean;
+begin
+  result := false;
+  if line='' then
+    exit;
+  case line[1] of
+    '!':
+    case line[2] of
+      '$': RtfDfm(copy(line,3,maxInt));
+      else RtfPascal(copy(line,2,maxInt));
+    end;
+    '&': RtfC(copy(line,2,maxInt));
+    '#': RtfCSharp(copy(line,2,maxInt));
+    'µ': RtfModula2(copy(line,2,maxInt));
+    '$': 
+    case line[2] of
+      '$': RtfSgml(copy(line,3,maxInt));
+      else RtfListing(copy(line,2,maxInt));
+    end;
+  else exit;
+  end;
+  result := true;
+end;
+
+procedure TProjectWriter.RtfPascal(const line: string; aFontSize: integer = 80);
+begin
+  RtfKeywords(line, PASCALKEYWORDS, aFontSize);
+end;
+
+procedure TProjectWriter.RtfDfm(const line: string; aFontSize: integer);
+begin
+  RtfKeywords(line, DFMKEYWORDS, aFontSize);
+end;
+
+procedure TProjectWriter.RtfC(const line: string);
+begin
+  RtfKeywords(line, CKEYWORDS);
+end;
+
+procedure TProjectWriter.RtfCSharp(const line: string);
+begin
+  RtfKeywords(line, CSHARPKEYWORDS);
+end;
+
+procedure TProjectWriter.RtfModula2(const line: string);
+begin
+  RtfKeywords(line, MODULA2KEYWORDS);
+end;
+
+procedure TProjectWriter.RtfListing(const line: string);
+begin
+  RtfKeywords(line, []);
+end;
+
+procedure TProjectWriter.RtfSgml(const line: string);
+begin
+  RtfKeywords(line, XMLKEYWORDS);
+end;
+
+procedure TProjectWriter.RtfColLine(const line: string);
+var P: PChar;
+    withBorder, normalIndent: boolean;
+    n, v, err: integer;
+    Col: string;
+    Cols: TIntegerDynArray;
+    Colss: TStringDynArray;
+begin
+  if line='' then exit;
+  if line[1]='%' then begin
+     // |%=-40%30%30  = each column size -:no border =:no indent
+     if fColsCount<>0 then // close any pending (and forgotten) table
+       RtfColsEnd;
+     P := @line[2];
+     if P^=#0 then exit else // |% -> just close Table
+     if P^='=' then begin //  = : no indent
+       normalIndent := true;
+       inc(P);
+     end else
+       normalIndent := false;
+     if P^='-' then begin  // - : no border
+       withBorder := false;
+       inc(P);
+     end else
+       withBorder := true;
+     SetLength(Cols,20);
+     n := 0;
+     repeat
+       Col := GetNextItem(P,'%');
+       if Col='' then break;
+       val(Col,v,err);
+       if err<>0 then continue;
+       ProjectCommons.AddInteger(Cols,n,v);
+     until false;
+     SetLength(Cols,n);
+     RtfColsPercent(Cols,true,withBorder,normalIndent,'\trkeep');
+  end else begin // |text col 1|text col 2|text col 3
+     SetLength(Colss,20);
+     n := 0;
+     P := pointer(line);
+     repeat
+       Col := GetNextItem(P,'|');
+       ProjectCommons.AddString(Colss,n,Col);
+     until P=nil;
+     if n=0 then exit;
+     SetLength(Colss,n);
+     RtfRow(Colss);
+  end;
+end;
+
+function TProjectWriter.RtfLinkTo(const aBookName, aText: string): TProjectWriter;
+begin
+  fStringPlain := true;
+  WR.Add(RtfLinkToString(aBookName,aText,false));
+  fStringPlain := false;
+  result := self;
+end;
+
+function TProjectWriter.RtfPageRefTo(aBookName: string;
+  withLink: boolean): TProjectWriter;
+begin
+  fStringPlain := true;
+  WR.Add(RtfPageRefToString(aBookName,withLink,false));
+  fStringPlain := false;
+  result := self;
+end;
+
+function TProjectWriter.RtfBookMark(const Text, BookmarkName: string;
+  bookmarkNormalized: boolean): string;
+// return real BookMarkName
+begin
+  if BookmarkName='' then begin
+    result := '';
+    AddRtfContent(Text);
+  end else begin
+    if bookmarkNormalized then
+      result := BookmarkName else
+      result := RtfBookMarkName(BookmarkName);
+    fStringPlain := true;
+    WR.Add(RtfBookMarkString(Text,result,true));
+    fStringPlain := false;
+  end;
+end;
+
+function TProjectWriter.RtfFont(SizePercent: integer): TProjectWriter;
+// change font size % DefFontSize
+begin
+  fStringPlain := true;
+  WR.Add(RtfFontString(SizePercent));
+  fStringPlain := false;
+  result := self;
+end;
+
+procedure TProjectWriter.RtfTitle(Title: string; LevelOffset: integer;
+  withNumbers: boolean; Bookmark: string);
+var i: Integer;
+    Num: string;
+begin
+  if LevelOffset>0 then
+    TitleLevelCurrent := LevelOffset else
+    TitleLevelCurrent := 0;
+  for i := 1 to length(Title) do
+    if Title[i]<>' ' then begin
+      inc(TitleLevelCurrent,i);
+      break;
+    end;
+  if TitleLevelCurrent=0 then exit;
+  // TitleLevelCurrent = 1..length(TitleLevel)
+  fLastWasRtfPageInRtfTitle := fLastWasRtfPage;
+  SetLast(lastRtfTitle);
+  if TitleLevelCurrent>1 then
+    Delete(Title,1,TitleLevelCurrent-1-LevelOffset);
+  if TitleLevelCurrent>length(TitleLevel) then
+    TitleLevelCurrent := length(TitleLevel);
+  inc(TitleLevel[TitleLevelCurrent-1]);
+  if not TitleFlat and (TitleLevel[0]=0) then // intro = first chapter = no number
+    withNumbers := false;
+  fillchar(TitleLevel[TitleLevelCurrent],length(TitleLevel)-TitleLevelCurrent,0);
+  fBookmarkInRtfTitle := '';
+  if Bookmark='' then begin
+    if TitlesList<>nil then // force every title to have a bookmark
+      fBookmarkInRtfTitle := 'TITLE_'+IntToStr(TitlesList.Count);
+  end else
+  if Bookmark<>'- 'then begin // Bookmark='-' -> force only title
+    fBookmarkInRtfTitle := RtfBookMarkName(BookMark);
+    LastTitleBookmark := fBookmarkInRtfTitle;
+  end;
+  fInRtfTitle := '';
+  if withNumbers then begin
+    for i := 1 to TitleLevelCurrent do
+      fInRtfTitle := fInRtfTitle+IntToStr(TitleLevel[i-1])+'.';
+    fInRtfTitle := fInRtfTitle+' ';
+  end;
+  fInRtfTitle := fInRtfTitle+title;
+  if (TitlesList<>nil) and (fBookmarkInRtfTitle<>'-') then begin
+    // '1.2.3 Title|BookMark',pointer(3)
+    if not FullTitleInTableOfContent then begin
+      i := pos('\line',Title);
+      if i>0 then
+        SetLength(Title,i-1);
+    end;
+    i := pos('{',Title);
+    if i>0 then
+      SetLength(Title,i-1);
+    if Title<>'' then begin
+      if withNumbers then begin
+        Num := '';
+        for i := 1 to TitleLevelCurrent do
+          Num := Num+IntToStr(TitleLevel[i-1])+'.';
+        Title := Num+' '+Title;
+      end;
+      TitlesList.AddObject(Title+'|'+fBookmarkInRtfTitle,pointer(TitleLevelCurrent));
+    end;
+  end;
+end;             
+
+
+{ TRTF }
+
 constructor TRTF.Create(const aLayout: TProjectLayout;
   aDefFontSizeInPts, aCodePage, aDefLang: integer;
   aLandscape, CloseManualy, aTitleFlat: boolean; const aF0, aF1: string;
@@ -1303,6 +1663,7 @@ constructor TRTF.Create(const aLayout: TProjectLayout;
 var i: integer;
 begin
   inherited;
+  HandlePages := true;
   WR.AddShort('{\rtf1\ansi\ansicpg').AddWord(aCodePage).AddShort('\deff0\deffs').
     AddInteger(aDefFontSizeInPts).AddShort('\deflang').AddInteger(aDefLang).
     AddShort('{\fonttbl{\f0\fswiss\fcharset0 ').Add(aF0).
@@ -1341,6 +1702,51 @@ begin
   WR.AddShort(#13'{');
   RtfParDefault;
   Last := lastRtfNone;
+end;
+
+function TRTF.RtfImageString(const Image: string;
+  const Caption: string; WriteBinary: boolean; perc: integer): string;
+// 'SAD-4.1-functions.png 1101x738 85%' (100% default width)
+const PICEXTTORTF: array[0..high(VALID_PICTURES_EXT)] of string =
+    ('jpeg','jpeg','png','emf');
+var Map: TMemoryMap;
+    w,h, percent, Ext: integer;
+    aFileName, iWidth, iHeight, content: string;
+begin
+  result := '';
+  if ImageSplit(Image, aFileName, iWidth, iHeight, w,h,percent,ext) then
+  if Map.DoMap(aFileName) or Map.DoMap(PicturePath+aFileName) then
+  try
+    // write to
+    Last := lastRtfImage;
+    if perc<>0 then
+      percent := perc;
+    percent := (Width*percent) div 100;
+    h := (h*percent) div w;
+    if WriteBinary then begin
+      SetString(content,PAnsiChar(Map.buf),Map._size);
+      content := '\bin'+IntToStr(Map._size)+' '+content;
+    end else begin
+      SetLength(content,Map._size*2);
+      Map.ToHex(pointer(content));
+    end;
+    result := '{\pict\'+PICEXTTORTF[ext]+'blip\picw'+iWidth+'\pich'+iHeight+
+      '\picwgoal'+IntToStr(percent)+'\pichgoal'+IntToStr(h)+
+      ' '+content+'}';
+    if Caption<>'' then
+      result := result+'\line '+Caption+'\par';
+  finally
+    Map.UnMap;
+  end;
+end;
+
+function TRTF.RtfImage(const Image, Caption: string; WriteBinary: boolean;
+  const RtfHead: string): TProjectWriter;
+begin
+  WR.Add('{').Add(RtfHead);
+  WR.Add(RtfImageString(Image,Caption,WriteBinary,0));
+  WR.AddShort('}'#13);
+  result := self;
 end;
 
 procedure TRTF.RtfPage;
@@ -1388,7 +1794,8 @@ procedure TRTF.SaveToFile(Format: TSaveFormat; OldWordOpen: boolean);
 begin
   RtfText;
   WR.AddShort('}}');
-  if Format=fNoSave then exit;
+  if not (Format in [fDoc,fPdf]) then
+    exit;
   WR.SaveToFile(FileName);
   if OldWordOpen then
     Format := fDoc;
@@ -1403,8 +1810,7 @@ begin
 end;
 
 procedure TRTF.RtfCols(const ColXPos: array of integer; FullWidth: integer;
-  VertCentered, withBorder: boolean;
-  const RowFormat: string);
+  VertCentered, withBorder: boolean; const RowFormat: string);
 var i: integer;
     s: string;
 begin
@@ -1466,36 +1872,13 @@ begin
   result := (P^=#0);
 end;
 
-procedure TRTF.RtfTitle(Title: string;
-  LevelOffset: integer = 0; withNumbers: boolean = true;
-  Bookmark: string = '');
+procedure TRTF.RtfTitle(Title: string; LevelOffset: integer = 0;
+  withNumbers: boolean = true; Bookmark: string = '');
 // Title is indentated with level
-var i: integer;
-    Num: string;
-    LastWasRtfPage: boolean;
 begin
-  if LevelOffset>0 then
-    TitleLevelCurrent := LevelOffset else
-    TitleLevelCurrent := 0;
-  for i := 1 to length(Title) do
-    if Title[i]<>' ' then begin
-      inc(TitleLevelCurrent,i);
-      break;
-    end;
-  if TitleLevelCurrent=0 then exit;
-  // TitleLevelCurrent = 1..length(TitleLevel)
-  LastWasRtfPage := fLastWasRtfPage;
-  Last := lastRtfTitle;
-  if TitleLevelCurrent>1 then
-    Delete(Title,1,TitleLevelCurrent-1-LevelOffset);
-  if TitleLevelCurrent>length(TitleLevel) then
-    TitleLevelCurrent := length(TitleLevel);
-  inc(TitleLevel[TitleLevelCurrent-1]);
-  if not TitleFlat and (TitleLevel[0]=0) then // intro = first chapter = no number
-    withNumbers := false;
-  fillchar(TitleLevel[TitleLevelCurrent],length(TitleLevel)-TitleLevelCurrent,0);
+  inherited; // set TitleLevel*[] and fLastWasRtfPageInRtfTitle+fBookmarkInRtfTitle
   if not TitleFlat and (TitleLevelCurrent=1) then begin
-    if not LastWasRtfPage then
+    if not fLastWasRtfPageInRtfTitle then
       WR.AddShort('\page');
     WR.AddShort('{\sb2400\sa140\brdrb\brdrs\brdrcf9\brdrw60\brsp60\ql\b\cf9\shad');
     RtfFont(240);
@@ -1508,55 +1891,19 @@ begin
   end;
   if TitleLevelCurrent<=MaxTitleOutlineLevel then
     WR.AddShort('\s').AddInteger(TitleLevelCurrent).Add(' ');
-  if withNumbers then begin
-    for i := 1 to TitleLevelCurrent do
-      WR.AddWord(TitleLevel[i-1]).Add('.');
-    WR.Add(' ');
-  end;
-  if Bookmark='' then
-    if TitlesList<>nil then // force every title to have a bookmark
-      Bookmark := RtfBookMark(Title,'TITLE_'+IntToStr(TitlesList.Count)) else
-      WR.Add(Title) else // no Bookmark -> only title
-    if Bookmark='- 'then
-      WR.Add(Title) else // Bookmark='-' -> force only title
-      LastTitleBookmark := RtfBookMark(Title,BookMark); // title+Bookmark
+  RtfBookMark(fInRtfTitle,fBookmarkInRtfTitle,true);
   WR.AddShort('\par}'#13);
   if TitleWidth<>0 then
     WR.AddShort('\li').AddInteger(TitleWidth*pred(TitleLevelCurrent)).Add(' ');
-  if (TitlesList<>nil) and (BookMark<>'-') then begin
-    // '1.2.3 Title|BookMark',pointer(3)
-    if not FullTitleInTableOfContent then begin
-      i := pos('\line',Title);
-      if i>0 then
-        SetLength(Title,i-1);
-    end;
-    i := pos('{',Title);
-    if i>0 then
-      SetLength(Title,i-1);
-    if Title<>'' then begin
-      if withNumbers then begin
-        Num := '';
-        for i := 1 to TitleLevelCurrent do
-          Num := Num+IntToStr(TitleLevel[i-1])+'.';
-        Title := Num+' '+Title;
-      end;
-      TitlesList.AddObject(Title+'|'+Bookmark,pointer(TitleLevelCurrent));
-    end;
-  end;
 end;
 
-function TRTF.RtfBookMark(const Text, BookmarkName: string): string;
-// return real BookMarkName
+function TRTF.RtfBookMarkString(const Text, BookmarkName: string;
+  bookmarkNormalized: boolean): string;
 begin
-  if BookmarkName='' then begin
-    result := '';
-    WR.Add(Text);
-  end else begin
+  if bookmarkNormalized then
+    result := BookmarkName else
     result := RtfBookMarkName(BookmarkName);
-    WR.AddShort('{\*\bkmkstart ').Add(result).Add('}').
-    Add(Text).
-    AddShort('{\*\bkmkend ').Add(result).Add('}');
-  end;
+  result :='{\*\bkmkstart '+result+'}'+Text+'{\*\bkmkend '+result+'}';
 end;
 
 procedure TRTF.RtfSubTitle(const Title: string);
@@ -1567,13 +1914,6 @@ begin
     WR.AddShort('\li').AddInteger(TitleWidth*pred(TitleLevelCurrent)+IndentWidth);
   RtfFont(Max(160-TitleLevelCurrent*20,100));
   WR.Add(Title).AddShort('\par}'#13);
-end;
-
-function TRTF.RtfFont(SizePercent: integer): TProjectWriter;
-// change font size % DefFontSize
-begin
-  WR.AddShort('\fs').AddWord((FontSize*SizePercent)div 100).Add(' ');
-  result := self;
 end;
 
 function TRTF.RtfFontString(SizePercent: integer): string;
@@ -1733,12 +2073,6 @@ begin
 end;
 {$endif}
 
-function RtfField(const FieldName: string): string;
-// ex: RtfField('PAGE')
-begin
-  result := '{\field{\*\fldinst '+FieldName+'}}';
-end;
-
 // RtfBackSlash('C:\Dir\')='C:\\Dir\\'
 function RtfBackSlash(const Text: string): string;
 var i: integer;
@@ -1774,49 +2108,42 @@ begin
   for i := 1 to length(result) do
     if not (result[i] in ['0'..'9','A'..'Z']) then
       result[i] := '_';
+  if Length(result)>40 then
+    result := copy(result,1,16)+'_TRUNC_'+BookMarkHash(Name);
   RtfBookMarkNameValue := result;
 end;
 
-function RtfBookMark(const Text, BookMarkName: string): string;
-// bookmark and write some rtf Text
-var BookMark: string;
+function TRTF.RtfLinkToString(const aBookName, aText: string;
+  bookmarkNormalized: boolean): string;
 begin
-  BookMark := RtfBookMarkName(BookMarkName);
-  result :='{\*\bkmkstart '+BookMark+'}'+ Text
-          +'{\*\bkmkend '+BookMark+'}';
+  if bookmarkNormalized then
+    result := aBookName else
+    result := RtfBookMarkName(aBookName);
+  result := '{\field{\*\fldinst HYPERLINK \\l "'+result+'"}{\fldrslt '+aText+'}}';
 end;
 
-function RtfLinkTo(const aBookName, aText: string): string;
+function TRTF.RtfHyperlinkString(const http,text: string): string;
 begin
-  result := '{\field{\*\fldinst HYPERLINK \\l "'+
-    RtfBookMarkName(aBookName)+'"}{\fldrslt '+aText+'}}';
+  result := '{\field{\*\fldinst{HYPERLINK'#13'"'+http+'"'#13'}}{\fldrslt{\ul'#13;
+  if text='' then
+    result := result+http+'..'+'}}}' else
+    result := result+text+'}}}';
 end;
 
-function TrimLastPeriod(const s: string; FirstCharLower: boolean = false): string;
+function TRTF.RtfField(const FieldName: string): string;
 begin
-  if s='' then
-    result := '' else begin
-    if s[length(s)]<>'.' then
-      result := s else
-      result := copy(s,1,length(s)-1);
-    if FirstCharLower then
-      result[1] := NormToLower[result[1]];
-  end;
+  result := '{\field{\*\fldinst '+FieldName+'}}';
 end;
 
-function MM2Inch(mm: integer): integer;
-// MM2Inch(210)=11905 : A4 width paper size
-begin
-  result := ((1440*1000)*mm) div 25400;
-end;
-
-function RtfPageRefTo(aBookName: string; withLink: boolean): string;
+function TRTF.RtfPageRefToString(aBookName: string; withLink: boolean;
+  BookMarkAlreadyComputed: boolean; Sequence: integer): string;
 begin
   if aBookName='' then begin
     result := '';
     exit;
   end;
-  aBookName := RtfBookMarkName(aBookName);
+  if not BookMarkAlreadyComputed then
+    aBookName := RtfBookMarkName(aBookName);
   result := '{\field{\*\fldinst PAGEREF "'+aBookName+'"}}';
   if withLink then
     result := '{\field{\*\fldinst HYPERLINK \\l "'+aBookName+'"}{\fldrslt '+
@@ -1887,30 +2214,6 @@ begin
   WR.Add('}');
 end;
 
-function TRTF.RtfLinkTo(const aBookName, aText: string): TProjectWriter;
-begin
-  WR.AddShort('{\field{\*\fldinst HYPERLINK \\l "').
-    Add(RtfBookMarkName(aBookName)).
-    AddShort('"}{\fldrslt ').Add(aText).AddShort('}}');
-  result := self;
-end;
-
-function TRTF.RtfPageRefTo(aBookName: string; withLink: boolean;
-  BookMarkAlreadyComputed: boolean): TProjectWriter;
-begin
-  result := Self;
-  if aBookName='' then
-    exit;
-  if not BookMarkAlreadyComputed then
-    aBookName := RtfBookMarkName(aBookName);
-  if withLink then
-    WR.AddShort('{\field{\*\fldinst HYPERLINK \\l "').Add(aBookName).
-    AddShort('"}{\fldrslt ');
-  WR.AddShort('{\field{\*\fldinst PAGEREF "').Add(aBookName).AddShort('"}}');
-  if withLink then
-    WR.AddShort('}}');
-end;
-
 function TRTF.AddRtfContent(const s: string): TProjectWriter;
 begin
   WR.Add(s);
@@ -1957,146 +2260,8 @@ begin
   end;
 end;
 
-
-{ TProjectWriter }
-
-procedure TProjectWriter.Clear;
-begin
-  WR.len := 0;
-end;
-
-procedure TProjectWriter.SaveToWriter(aWriter: TProjectWriter);
-begin
-  WR.SaveToWriter(aWriter.WR);
-end;
-
-class function TProjectWriter.CreateFrom(
-  aParent: TProjectWriter): TProjectWriter;
-begin
-  result := TProjectWriterClass(aParent.ClassType).InternalCreate;
-  result.FontSize := aParent.FontSize;
-end;
-
-constructor TProjectWriter.InternalCreate;
-begin
-  WR.Init;
-end;
-
-function TProjectWriter.AddRtfContent(const fmt: string;
-  const params: array of const): TProjectWriter;
-begin
-  result := AddRtfContent(format(fmt,params));
-end;
-
-function TProjectWriter.AddWithoutPeriod(const s: string;
-  FirstCharLower: boolean): TProjectWriter;
-var tmp: string;
-    L: integer;
-begin
-  result := self;
-  if s='' then
-    exit;
-  L := length(s);
-  if s[L]<>'.' then
-    tmp := s else
-    if L=1 then
-      exit else
-      SetString(tmp,PChar(pointer(s)),L-1);
-  if FirstCharLower then
-    tmp[1] := NormToLower[tmp[1]] else
-    tmp[1] := NormToUpper[tmp[1]];
-  AddRtfContent(tmp);
-end;
-
-constructor TProjectWriter.Create(const aLayout: TProjectLayout;
-  aDefFontSizeInPts, aCodePage, aDefLang: integer; aLandscape,
-  aCloseManualy, aTitleFlat: boolean; const aF0, aF1: string;
-  aMaxTitleOutlineLevel: integer);
-begin
-  InternalCreate;
-  aDefFontSizeInPts := aDefFontSizeInPts*2;
-  FontSize := aDefFontSizeInPts;
-  fLandscape := aLandscape;
-  Layout := aLayout;
-  if LandScape then begin
-    Layout.Page.Width := aLayout.Page.Height;
-    Layout.Page.Height := aLayout.Page.Width;
-  end;
-  Width := Layout.Page.Width-Layout.Margin.Left-Layout.Margin.Right;
-  TitleFlat := aTitleFlat;
-  TitleWidth := 0;     // title indetation gap (default 0 twips)
-  IndentWidth := 240;  // list or title first line indent (default 240 twips)
-  if not TitleFlat then
-    TitleLevel[0] := -1; // introduction = first chapter = no number
-  MaxTitleOutlineLevel := aMaxTitleOutlineLevel;
-  // inherited should finish with:  if not CloseManualy then InitClose;
-end;
-
-procedure TProjectWriter.SetLandscape(const Value: boolean);
-begin
-  fLandscape := Value;
-end;
-
-procedure TProjectWriter.MovePortion(sourcePos, destPos, aLen: integer);
-begin
-  WR.MovePortion(sourcePos,destPos,aLen);
-end;
-
-function TProjectWriter.Data: string;
-begin
-  result := WR.Data;
-end;
-
-function TProjectWriter.RtfText: TProjectWriter;
-begin
-  Last := lastRtfText; // set Last -> update any pending {} (LastRtfList e.g.)
-  fKeyWordsComment := false; // force end of comments
-  result := self;
-end;
-
-procedure TProjectWriter.RtfColVertAlign(ColIndex: Integer;
-  Align: TAlignment; DrawBottomLine: boolean);
-var i, j: integer;
-begin
-  j := 1;
-  for i := 0 to ColIndex do begin
-   j := PosEx('\clvertal',fCols,j)+9;
-   if j=9 then exit;
-  end;
-  case Align of // left=top, middle=center, right=bottom
-    taLeftJustify:  fCols[j] := 't';
-    taCenter:       fCols[j] := 'c';
-    taRightJustify: fCols[j] := 'b';
-  end;
-  if DrawBottomLine then
-    insert('\clbrdrb\brdrs\brdrcf9\brdrw24\brsp24',fCols,j-9) else
-    if IdemPChar(@fCols[j-46],'\CLBRDR') then
-      Delete(fCols,j-46,37);
-end;
-
-procedure TProjectWriter.RtfColsPercent(ColWidth: array of integer;
-  VertCentered, withBorder, NormalIndent: boolean;
-  RowFormat: string);
-var x, w, i, ww: integer;
-begin
-  if NormalIndent then begin
-    x := TitleWidth*pred(TitleLevelCurrent);
-    ww := Width-x;
-    if x<>0 then
-      RowFormat := RowFormat+'\trleft'+IntToStr(x);
-  end else begin
-    x := 0;
-    ww := Width;
-  end;
-  for i := 0 to high(ColWidth) do begin
-    w := (ww*ColWidth[i]) div 100;
-    inc(x,w);
-    ColWidth[i] := x;
-  end;
-  RtfCols(ColWidth, ww, VertCentered, withBorder, RowFormat);
-end;
-
-procedure TProjectWriter.RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer = 80);
+procedure TRTF.RtfKeywords(line: string; const KeyWords: array of string;
+  aFontSize: integer = 80);
 function GetLineContent(start,count: integer): string;
 var k: Integer;
 begin
@@ -2284,7 +2449,7 @@ begin
         s := copy(line,i,j-i);
       if s<>'' then
         if (CString or PasString) and IsNumber(pointer(s)) then
-          // write const number in blue 
+          // write const number in blue
           AddRtfContent('{\cf9 '+s+'}') else
         if ((@KeyWords=@MODULA2KEYWORDS) and
               IsKeyWord(KeyWords,s)) or // .MOD keys are always uppercase
@@ -2330,113 +2495,10 @@ begin
   AddRtfContent('\par}'#13);
 end;
 
-function TProjectWriter.RtfCode(const line: string): boolean;
+procedure TRTF.RtfColsHeader(const text: string);
 begin
-  result := false;
-  if line='' then
-    exit;
-  case line[1] of
-    '!':
-    case line[2] of
-      '$': RtfDfm(copy(line,3,maxInt));
-      else RtfPascal(copy(line,2,maxInt));
-    end;
-    '&': RtfC(copy(line,2,maxInt));
-    '#': RtfCSharp(copy(line,2,maxInt));
-    'µ': RtfModula2(copy(line,2,maxInt));
-    '$': 
-    case line[2] of
-      '$': RtfSgml(copy(line,3,maxInt));
-      else RtfListing(copy(line,2,maxInt));
-    end;
-  else exit;
-  end;
-  result := true;
-end;
-
-procedure TProjectWriter.RtfPascal(const line: string; aFontSize: integer = 80);
-begin
-  RtfKeywords(line, PASCALKEYWORDS, aFontSize);
-end;
-
-procedure TProjectWriter.RtfDfm(const line: string; aFontSize: integer);
-begin
-  RtfKeywords(line, DFMKEYWORDS, aFontSize);
-end;
-
-procedure TProjectWriter.RtfC(const line: string);
-begin
-  RtfKeywords(line, CKEYWORDS);
-end;
-
-procedure TProjectWriter.RtfCSharp(const line: string);
-begin
-  RtfKeywords(line, CSHARPKEYWORDS);
-end;
-
-procedure TProjectWriter.RtfModula2(const line: string);
-begin
-  RtfKeywords(line, MODULA2KEYWORDS);
-end;
-
-procedure TProjectWriter.RtfListing(const line: string);
-begin
-  RtfKeywords(line, []);
-end;
-
-procedure TProjectWriter.RtfSgml(const line: string);
-begin
-  RtfKeywords(line, XMLKEYWORDS);
-end;
-
-procedure TProjectWriter.RtfColLine(const line: string);
-var P: PChar;
-    withBorder, normalIndent: boolean;
-    n, v, err: integer;
-    Col: string;
-    Cols: TIntegerDynArray;
-    Colss: TStringDynArray;
-begin
-  if line='' then exit;
-  if line[1]='%' then begin
-     // |%=-40%30%30  = each column size -:no border =:no indent
-     if fColsCount<>0 then // close any pending (and forgotten) table
-       RtfColsEnd;
-     P := @line[2];
-     if P^=#0 then exit else // |% -> just close Table
-     if P^='=' then begin //  = : no indent
-       normalIndent := true;
-       inc(P);
-     end else
-       normalIndent := false;
-     if P^='-' then begin  // - : no border
-       withBorder := false;
-       inc(P);
-     end else
-       withBorder := true;
-     SetLength(Cols,20);
-     n := 0;
-     repeat
-       Col := GetNextItem(P,'%');
-       if Col='' then break;
-       val(Col,v,err);
-       if err<>0 then continue;
-       ProjectCommons.AddInteger(Cols,n,v);
-     until false;
-     SetLength(Cols,n);
-     RtfColsPercent(Cols,true,withBorder,normalIndent,'\trkeep');
-  end else begin // |text col 1|text col 2|text col 3
-     SetLength(Colss,20);
-     n := 0;
-     P := pointer(line);
-     repeat
-       Col := GetNextItem(P,'|');
-       ProjectCommons.AddString(Colss,n,Col);
-     until P=nil;
-     if n=0 then exit;
-     SetLength(Colss,n);
-     RtfRow(Colss);
-  end;
+  RtfColsPercent([100],true,false,false,'\trkeep');
+  RtfRow(['\ql\line{\b\fs30 '+text+'}'],true);
 end;
 
 
@@ -2458,9 +2520,13 @@ end;
 
 function THTML.AddRtfContent(const s: string): TProjectWriter;
 begin
-  EnsureHeaderWritten;
-  WriteAsHtml(pointer(s));
+  WriteAsHtml(pointer(s),nil);
   result := self;
+end;
+
+constructor THTML.InternalCreate;
+begin
+  inherited InternalCreate;
 end;
 
 constructor THTML.Create(const aLayout: TProjectLayout; aDefFontSizeInPts,
@@ -2471,13 +2537,12 @@ begin
   { TODO : multi-page layout }
 end;
 
-procedure THTML.EnsureHeaderWritten;
+procedure THTML.Clear;
 begin
-  if fHeaderWritten then
-    exit;
-  WR.Add(Format(BOOTSTRAP_HEADER,[AnsiQuotedStr(fContent,'"'),
-    AnsiQuotedStr(fAuthor,'"'),HtmlEncode(fTitle)]));
-  fHeaderWritten := true;
+  inherited Clear;
+  Level := 0;
+  fillchar(Stack,sizeof(Stack),0);
+  Current := [];
 end;
 
 procedure THTML.InitClose;
@@ -2486,170 +2551,585 @@ begin
   { TODO : multi-page layout }
 end;
 
+var ConsoleAllocated: boolean;
+
+procedure THTML.OnError(msg: string; const args: array of const);
+begin
+  if not ConsoleAllocated then
+    AllocConsole;
+  msg := Format(msg,args);
+  writeln(msg);
+//  MessageBox(0,pointer(msg),nil,MB_OK);
+end;
+
 function THTML.RtfBig(const text: string): TProjectWriter;
 begin
-  EnsureHeaderWritten;
-  WR.Add('<h1>');
+  WR.Add('<div class="lead">');
   AddRtfContent(text);
-  WR.Add('</h1>').AddCRLF;
+  WR.Add('</div>').AddCRLF;
   result := self;
 end;
 
-function THTML.RtfBookMark(const Text, BookmarkName: string): string;
+function THTML.RtfBookMarkString(const Text, BookmarkName: string;
+  bookmarkNormalized: boolean): string;
 begin
-  EnsureHeaderWritten;
   if BookmarkName='' then
     result := '' else begin
-    result := RtfBookMarkName(BookmarkName);
-    WR.AddShort('<a name="').Add(result).AddShort('">');
+    if bookmarkNormalized then
+      result := BookmarkName else
+      result := RtfBookMarkName(BookmarkName);
+    result := '<a name="'+result+'"></a>';
+    if Text<>'' then
+      if fStringPlain then
+        result := result+ContentAsHtml(Text) else
+        result := #1+result+#1+Text;
   end;
-  AddRtfContent(Text);
 end;
 
 procedure THTML.RtfCols(const ColXPos: array of integer;
   FullWidth: integer; VertCentered, withBorder: boolean;
   const RowFormat: string);
+var left,i,w,md: integer;
 begin
   fColsCount := length(ColXPos);
-  WR.AddCRLF.Add('<table class="table">');
-  Last := lastRtfCols;
-  { TODO: handle table cells format }
+  if fColsCount=0 then
+    exit;
+  i := Pos('\trleft',RowFormat);
+  if i>0 then
+    left := StrToIntDef(copy(RowFormat,i+7,10),0) else
+    left := 0;
+  SetLength(fColsMD,fColsCount);
+  for i := 0 to fColsCount-1 do begin
+    w := ColXPos[i]-left;
+    left := ColXPos[i];
+    md := round((w*100)/Width);
+    if md=0 then
+      inc(md);
+    fColsMD[i] := md;
+  end;
+  if Last=lastRtfCols then begin
+    fColsAreHeader := false;
+  end else begin
+    SetLast(lastRtfCols);
+    fColsAreHeader := IdemPChar(pointer(RowFormat),'\TRHDR');
+    WR.AddCRLF.AddShort('<table class="docutils" align="center" width="100%"><colgroup>');
+    for i := 0 to fColsCount-1 do
+      WR.Add('<col width="%d%%" />',[fColsMD[i]]);
+    WR.AddShort('</colgroup>');
+  end;
+end;
+
+procedure THTML.RtfRow(const Text: array of string; lastRow: boolean);
+var i: integer;
+    t1,t2: THtmlTag;
+    initial,save: THtmlTags;
+begin
+  if length(Text)<=fColsCount then begin
+    if fColsAreHeader then begin
+      t1 := hTHead;
+      t2 := hTH;
+    end else begin
+      t1 := hTR;
+      t2 := hTD;
+    end;
+    SetCurrent(@WR);
+    initial := Current;
+    save := initial;
+    WR.Add(HTML_TAGS[false,t1]);
+    for i := 0 to high(Text) do begin
+      WR.Add(HTML_TAGS[false,t2]);
+      Stack[Level] := save;
+      SetCurrent(@WR);
+      AddRtfContent(Text[i]);
+      save := Stack[Level];
+      Stack[Level] := initial;
+      SetCurrent(@WR);
+      WR.Add(HTML_TAGS[true,t2]);
+    end;
+    WR.Add(HTML_TAGS[true,t1]).AddCRLF;
+    Stack[Level] := initial;
+    SetCurrent(@WR);
+  end;
+  if lastRow then
+    RtfColsEnd;
 end;
 
 function THTML.RtfColsEnd: TProjectWriter;
 begin
   result := self;
   if fColsCount=0 then exit;
-  WR.Add(HTML_TAGS[True,hTable]).AddCRLF;
-  Last := LastRtfNone;
+  if not fColsAreHeader then begin
+    WR.Add(HTML_TAGS[True,hTable]).AddCRLF;
+    Last := LastRtfNone;
+  end;
   fColsCount := 0;
+end;
+
+procedure THTML.RtfColsHeader(const text: string);
+begin
+  WR.Add('<strong>').Add(text).Add('</strong>').AddCRLF;
 end;
 
 procedure THTML.RtfEndSection;
 begin
-  inherited;
-
-end;
-
-function THTML.RtfFont(SizePercent: integer): TProjectWriter;
-begin
-  EnsureHeaderWritten;
-
 end;
 
 function THTML.RtfFontString(SizePercent: integer): string;
-begin
-
+begin // any implementation should handle fStringPlain flag
+  result := ''; // do nothing in responsive design
 end;
 
 procedure THTML.RtfFooterBegin(aFontSize: integer);
 begin
-  EnsureHeaderWritten;
-  inherited;
-
+  fSavedWriter := WR;
 end;
 
 procedure THTML.RtfFooterEnd;
 begin
-  inherited;
-
-end;
-
-function THTML.RtfGoodSized(const Text: string): string;
-begin
-
+  WR := fSavedWriter;
 end;
 
 procedure THTML.RtfHeaderBegin(aFontSize: integer);
 begin
-  EnsureHeaderWritten;
-  inherited;
-
+  fSavedWriter := WR;
 end;
 
 procedure THTML.RtfHeaderEnd;
 begin
-  inherited;
+  WR := fSavedWriter;
+end;
 
+function THTML.RtfGoodSized(const Text: string): string;
+begin
+  result := Text;
+end;
+
+function THTML.RtfImageString(const Image, Caption: string;
+  WriteBinary: boolean; perc: integer): string;
+// !!! TODO: produce SVG content instead of .emf binary
+var w,h, percent, Ext, i,j: integer;
+    aFileName, alt, src,iWidth, iHeight: string;
+const EXTS: array[0..high(VALID_PICTURES_EXT)] of string = (
+  'jpg','jpg','png','svg');
+begin
+  result := '';
+  if not ImageSplit(Image, aFileName, iWidth, iHeight, w,h,percent,ext) then begin
+    OnError('ImageSplit(%s)',[Image]);
+    exit;
+  end;
+  if not FileExists(aFileName) then begin
+    aFileName := PicturePath+aFileName;
+    if not FileExists(aFileName) then begin
+      OnError('File "%s" not found',[aFileName]);
+      exit;
+    end;
+  end;
+  if Ext=3 then begin // embed svg within the html document!
+    aFileName := ChangeFileExt(aFileName,'.svg');
+    FileToString(aFileName,src);
+    assert(pos('''',src)=0);
+    i := Pos('<g ',src);
+    if i>1 then
+      delete(src,1,i-1);
+    src := StringReplaceAll(StringReplaceAll(src,'Times New Roman','Arial'),#13,'');
+    repeat
+      i := Pos('<title>',src);
+      if i=0 then break;
+      j := Pos('</title>',src);
+      if j<i then break;
+      delete(src,i,j-i+8);
+    until false;
+    src := trim(StringReplaceAll(src,'&amp;','&'));
+    result := format('<svg viewBox="0 0 %d %d" width="%d" height="%d">',
+      [w,h,(w*2)div 3,(h*2)div 3])+src;
+  end else begin
+    alt := ExtractFileName(aFileName);
+    result := '<img src="img/'+alt+'" alt="'+alt+'">';
+    alt := IncludeTrailingPathDelimiter(DestPath)+'img\'+alt;
+    if not FileExists(alt) then begin
+      if not DirectoryExists(ExtractFilePath(alt)) then
+        CreateDir(ExtractFilePath(alt));
+      CopyFile(aFileName,alt);
+    end;
+  end;
+  if Caption<>'' then
+    result := format('<figure>%s<figcaption>%s</figcaption></figure>',
+      [result,ContentAsHtml(Caption)]);
+  if not fStringPlain then
+    result := #1+result+#1;
 end;
 
 function THTML.RtfImage(const Image, Caption: string; WriteBinary: boolean;
   const RtfHead: string): TProjectWriter;
 begin
-
+  fStringPlain := true;
+  WR.Add(RtfImageString(Image,Caption,WriteBinary,0));
+  fStringPlain := false;
+  result := self;
 end;
 
 function THTML.RtfLine: TProjectWriter;
 begin
-
+  RtfText;
+  WR.Add(HTML_TAGS[false,hBR]).AddCRLF;
+  result := self;
 end;
 
-function THTML.RtfLinkTo(const aBookName, aText: string): TProjectWriter;
+function THTML.RtfLinkToString(const aBookName, aText: string;
+  bookmarkNormalized: boolean): string;
 begin
+  if bookmarkNormalized then
+    result := aBookName else
+    result := RtfBookMarkName(aBookName);
+  result := Format(HTML_TAGS[false,hAHref],['#'+result])+ContentAsHtml(aText)+
+    HTML_TAGS[true,hAHref];
+  if not fStringPlain then
+    result := #1+result+#1;
+end;
 
+function THTML.RtfHyperlinkString(const http,text: string): string;
+begin
+  result := Format(HTML_TAGS[false,hAHref],[http]);
+  if text='' then
+    result := result+http else
+    result := result+ContentAsHtml(text);
+  result := result+HTML_TAGS[true,hAHref];
+  if not fStringPlain then
+    result := #1+result+#1;
+end;
+
+function THTML.RtfField(const FieldName: string): string;
+begin
+  result := ''; // no field
+end;
+
+procedure THTML.SetLast(const Value: TLastRTF);
+begin
+  if Value=fLast then
+    exit;
+  Stack[Level] := [];
+  if Current<>[] then
+    SetCurrent(@WR);
+  case fLast of
+  lastRtfCode: WR.Add(HTML_TAGS[true,hPre]);
+  lastRtfList: WR.Add(HTML_TAGS[true,hUL]);
+  lastRtfText: WR.Add(HTML_TAGS[true,hP]).AddCRLF;
+  end;
+  case Value of
+  lastRtfText: WR.Add(HTML_TAGS[false,hP]);
+  end;
+  fLast := Value;
 end;
 
 procedure THTML.RtfList(line: string);
 begin
-  inherited;
-
-end;
-
-procedure THTML.RtfPage;
-begin
-  inherited;
-
-end;
-
-function THTML.RtfPageRefTo(aBookName: string; withLink,
-  BookMarkAlreadyComputed: boolean): TProjectWriter;
-begin
-
+  while (line<>'') and (line[1] in [' ','-']) do
+    delete(line,1,1);
+  if line='' then
+    exit;
+  if Last<>lastRtfList then begin
+    SetLast(lastRtfList);
+    WR.Add(HTML_TAGS[false,hUL]);
+  end;
+  WR.Add(HTML_TAGS[false,hLI]);
+  WR.Add(ContentAsHtml(line));
+  WR.Add(HTML_TAGS[true,hLI]);
 end;
 
 function THTML.RtfPar: TProjectWriter;
 begin
-
+  SetLast(lastRtfNone);
+  RtfText;
+  result := RtfText;
 end;
 
 function THTML.RtfParDefault: TProjectWriter;
 begin
-  EnsureHeaderWritten;
-
+  Stack[Level] := [];
+  SetCurrent(@WR);
+  RtfText;
+  result := self;
 end;
 
-procedure THTML.RtfRow(const Text: array of string; lastRow: boolean);
-var i: integer;
+procedure THTML.RtfKeywords(line: string; const KeyWords: array of string;
+  aFontSize: integer);
+label com, str, str2;
+var P,B: PAnsiChar;
+    token: AnsiString;
+    HasLT,HasGT,Highlight, CString, PasString, IgnoreKeyWord: boolean;
+procedure SetToken;
 begin
-  WR.Add(HTML_TAGS[False,hTR]);
-  for i := 0 to high(Text) do begin
-    WR.Add(HTML_TAGS[False,hTD]);
-    AddRtfContent(Text[i]);
-    WR.Add(HTML_TAGS[True,hTD]);
+  SetString(token,B,P-B);
+  if HasLT and (HTML_TAGS[false,hLT][1]<>'<') then
+    token := StringReplaceAll(token,'<',HTML_TAGS[false,hLT]);
+  if HasGT and (HTML_TAGS[false,hGT][1]<>'>') then
+    token := StringReplaceAll(token,'>',HTML_TAGS[false,hGT]);
+end;
+begin
+  if line='' then
+    exit;
+  if Last<>lastRtfCode then begin
+    SetLast(lastRtfCode);
+    WR.Add(HTML_TAGS[false,hPre]);
+  end else
+    WR.AddCRLF;
+  P := Pointer(line);
+  CString := (@KeyWords=@MODULA2KEYWORDS) or (@KeyWords=@CKEYWORDS)
+          or (@KeyWords=@CSHARPKEYWORDS);
+  PasString := (@KeyWords=@PASCALKEYWORDS) or (@KeyWords=@DFMKEYWORDS);
+  IgnoreKeyWord := (length(KeyWords)=0) or (@KeyWords=@XMLKEYWORDS);
+  Highlight := (P^='!');
+  if Highlight then
+    inc(P);
+  B := P;
+  while B^=' ' do inc(B);
+  if B^<' ' then
+    exit;
+  if IgnoreKeyWord then begin
+    if HighLight then
+      WR.Add(HTML_TAGS[false,hHighlight]);
+    HasLT := False;
+    HasGT := False;
+    B := P;
+    while P^>=' ' do begin
+      if P^='<' then HasLT := True else
+      if P^='>' then HasGT := True;
+      inc(P);
+    end;
+    SetToken;
+    WR.Add(token);
+    if HighLight then
+      WR.Add(HTML_TAGS[true,hHighlight]);
+    exit;
   end;
-  WR.Add(HTML_TAGS[True,hTR]).AddCRLF;
-  if lastRow then
-    RtfColsEnd;
+  while P^=' ' do begin
+    WR.Add(' '); // HTML_TAGS[false,hNbsp]); needed only for blog 
+    inc(P);
+  end;
+  if HighLight then
+    WR.Add(HTML_TAGS[false,hHighlight]);
+  while P^>=' ' do begin
+    HasLT := false;
+    HasGT := false;
+    while P^=' ' do begin
+      WR.Add(' ');
+      inc(P);
+    end;
+    if (PWord(P)^=ord('(')+ord('*')shl 8) and
+       ((@KeyWords=@PASCALKEYWORDS) or (@KeyWords=@MODULA2KEYWORDS)) then begin
+      B := P;
+      inc(P,2);
+      while (PWord(P)^<>ord('*')+ord(')')) and (P^>=' ') do begin
+        if P^='<' then HasLT := True else
+        if P^='>' then HasGT := True;
+        inc(P);
+      end;
+      if P^='*' then inc(P,2);
+com:  SetToken;
+      WR.Add(HTML_TAGS[false,hNavyItalic]).Add(token).Add(HTML_TAGS[true,hNavyItalic]);
+      continue;
+    end else
+    if (P^='{') and (@KeyWords=@PASCALKEYWORDS) then begin
+      B := P;
+      repeat
+        if P^='<' then HasLT := True else
+        if P^='>' then HasGT := True;
+        inc(P)
+      until (P^='}') or (P^<' ');
+      if P^='}' then inc(P);
+      goto com;
+    end; 
+    B := P;
+    if PWord(P)^=ord('/')+ord('/')shl 8 then begin
+      while P^>=' ' do begin
+        if P^='<' then HasLT := True else
+        if P^='>' then HasGT := True;
+        inc(P);
+      end;
+      goto com;
+    end;
+    repeat
+      if CString and (P^='"') then begin
+        if (P[1]='"') and (B=P) then begin
+          WR.Add('""');
+          inc(P,2);
+          B := P;
+        end else
+          break;
+      end else
+      if P^='''' then begin
+        if PasString and (P[1]='''') then begin
+          WR.Add('''''');
+          inc(P,2);
+          B := P;
+        end else
+          break;
+      end else
+      if not (P^ in ['0'..'9','a'..'z','A'..'Z','_']) then
+        break else
+        inc(P);
+    until P^<' ';
+    SetString(token,B,P-B);
+    HasLT := false;
+    HasGT := false;
+    B := P;
+    if token<>'' then
+      if (CString or PasString) and IsNumber(pointer(token)) then
+        goto str2 else
+      if ((@KeyWords=@MODULA2KEYWORDS) and
+            IsKeyWord(KeyWords,token)) or // .MOD keys are always uppercase
+         ((@KeyWords<>@MODULA2KEYWORDS) and IsKeyWord(KeyWords,UpperCase(token))) then
+        WR.Add(HTML_TAGS[false,hBold]).Add(token).Add(HTML_TAGS[true,hBold]) else
+        WR.Add(token);
+    if CString and (P^='"') and (P[1]<>'"') then begin
+      repeat
+        if P^='<' then HasLT := True else
+        if P^='>' then HasGT := True;
+        inc(P);
+      until (P^='"') or (P^<' ');
+      if P^='"' then inc(P);
+str:  SetToken;
+str2: WR.Add(HTML_TAGS[false,hNavy]).Add(token).Add(HTML_TAGS[true,hNavy]);
+    end else
+    if PasString and (P^='''') and (P[1]<>'''') then begin
+      repeat
+        if P^='<' then HasLT := True else
+        if P^='>' then HasGT := True;
+        inc(P);
+      until (P^='''') or (P^<' ');
+      if P^='''' then inc(P);
+      goto str;
+    end else
+    if token='' then begin
+      if P^='<' then
+        WR.Add(HTML_TAGS[false,hLT]) else
+      if P^='>' then
+        WR.Add(HTML_TAGS[false,hGT]) else
+        WR.Add(P^);
+      inc(P);
+    end;
+  end;
+  if HighLight then
+    WR.Add(HTML_TAGS[true,hHighlight]);
 end;
 
-procedure THTML.RtfSubTitle(const Title: string);
+procedure THTML.RtfPage;
 begin
-  inherited;
+  WR.AddCRLF;
+end;
 
+function THTML.RtfPageRefToString(aBookName: string; withLink: boolean;
+  BookMarkAlreadyComputed: boolean; Sequence: integer): string;
+var caption: string;
+begin
+  result := '';
+  if (aBookName='') or not withLink then
+    exit;
+  if not BookMarkAlreadyComputed then
+    aBookName := RtfBookMarkName(aBookName);
+  if Sequence<>0 then
+    caption := IntToStr(abs(Sequence)) else
+    caption := '...';
+  result := Format(HTML_TAGS[false,hAHref],['#'+aBookName])+
+    '<span class="label';
+  if Sequence<0 then
+    result := result+' label-primary';
+  result := result+'">'+caption+'</span>'+HTML_TAGS[true,hAHref];
+  if not fStringPlain then
+    result := #1+result+#1;
 end;
 
 procedure THTML.RtfTitle(Title: string; LevelOffset: integer;
   withNumbers: boolean; Bookmark: string);
+var i,lev: Integer;
 begin
-  EnsureHeaderWritten;
-  inherited;
+  inherited; // set TitleLevel*[] and fInRtfTitle/fBookmarkInRtfTitle
+  lev := TitleLevelCurrent;
+  if lev>4 then
+    lev := 4;
+  WR.AddCRLF.Add(HTML_TAGS[false,hH],[lev]);
+  if fBookmarkInRtfTitle<>'' then
+    WR.Add(RtfBookMarkString('',fBookmarkInRtfTitle,true));
+  i := Pos('\line',fInRtfTitle);
+  if i>0 then begin
+    fInRtfTitle[i] := #0;
+    WriteAsHtml(pointer(fInRtfTitle),nil);
+    WR.AddShort('<br><small>');
+    WriteAsHtml(@fInRtfTitle[i+5],nil);
+    WR.AddShort('</small>');
+  end else
+    WriteAsHtml(pointer(fInRtfTitle),nil);
+  WR.Add(HTML_TAGS[true,hH],[lev]).AddCRLF;
+  RtfText;
+end;
 
+procedure THTML.RtfSubTitle(const Title: string);
+var lev: integer;
+begin
+  lev := TitleLevelCurrent;
+  if lev>6 then
+    lev := 6;
+  WR.AddCRLF.Add(HTML_TAGS[false,hH],[lev]);
+  WriteAsHtml(pointer(Title),nil);
+  WR.Add(HTML_TAGS[true,hH],[lev]).AddCRLF;
+end;
+
+function UTF8Encode(const winansi: string): utf8string;
+const VOIDP=ord('<')+ord('p')shl 8+ord('>')shl 16+ord('<')shl 24+
+            ord('/')shl 32+ord('p')shl 40+ord('>')shl 48+13 shl 56;
+      CRLF=$0a0d0a0d;
+var len: Integer;
+    S,E,P: PAnsiChar;
+begin
+  len := length(winansi);
+  S := pointer(winansi);
+  E := S+len;
+  while S<E do
+    if PInteger(S)^=CRLF then begin
+      inc(S,2);
+      dec(len,2);
+    end else
+    if PInt64(S)^=VOIDP then begin
+      inc(S,9);
+      dec(len,9);
+    end else begin
+      if S^>#$7f then
+        inc(len);
+      inc(S);
+    end;
+  SetLength(result,len);
+  S := pointer(winansi);
+  P := pointer(result);
+  while S<E do
+    if PInteger(S)^=CRLF then
+      inc(S,2) else
+    if PInt64(S)^=VOIDP then
+      inc(S,9) else begin
+      if S^>#$7f then begin
+        P[0] := AnsiChar($C0 or (ord(S^) shr 6));
+        P[1] := AnsiChar($80 or (ord(S^) and $3F));
+        inc(P,2);
+      end else begin
+        if S^=#0 then // fix incorrect input
+          P^ := ' ' else
+          P^ := S^;
+        inc(P);
+      end;
+      inc(S);
+    end;
+  assert(P-pointer(result)=len);
 end;
 
 procedure THTML.SaveToFile(Format: TSaveFormat; OldWordOpen: boolean);
+var html: AnsiString;
 begin
-  inherited;
-
+  RtfText;
+  WR.Add(BOOTSTRAP_FOOTER);
+  if Format<>fHtml then
+    exit;
+  html := UTF8Encode(SysUtils.Format(BOOTSTRAP_HEADER,[AnsiQuotedStr(fContent,'"'),
+    AnsiQuotedStr(fAuthor,'"'),HtmlEncode(fTitle)])+WR.Data);
+  StringToFile(FileName,html);
 end;
 
 procedure THTML.SetInfo(const aTitle, aAuthor, aSubject, aManager,
@@ -2658,109 +3138,160 @@ begin
   fTitle := aTitle;
   fAuthor := aAuthor;
   fContent := aSubject;
-  EnsureHeaderWritten;
 end;
 
 procedure THTML.SetLandscape(const Value: boolean);
 begin
-  inherited;
-
 end;
 
-procedure THTML.SetLast(const Value: TLastRTF);
+function THTML.ContentAsHtml(const text: string): string;
+var Temp: TStringWriter;
+    lev: integer;
+    saved,savedStack: THtmlTags;
 begin
-  inherited;
+  Temp.Init;
+  lev := Level;
+  saved := Current;
+  savedStack := Stack[lev];
+  WriteAsHtml(pointer(text),@Temp);
+  Level := lev;
+  Stack[Level] := savedStack; // emulates }
+  SetCurrent(@Temp);
+  Current := saved;
+  result := Temp.GetData;
 end;
 
-procedure THTML.WriteAsHtml(P: PAnsiChar);
-  procedure SetCurrent;
-  var Old, New: THtmlTags;
-      Tag: THtmlTag;
-  begin
-    New := Stack[Level];
-    Old := Current;
-    if New=Old then
-      exit;
-    for Tag := low(Tag) to high(Tag) do
-      if (Tag in Old) and not (Tag in New) then
-        WR.Add(HTML_TAGS[true,Tag]) else
-      if not (Tag in Old) and (Tag in New) then
-        WR.Add(HTML_TAGS[false,Tag]);
-    Current := New;
-  end;
+procedure THTML.SetCurrent(W: PStringWriter);
+var Old, New: THtmlTags;
+    Tag: THtmlTag;
+begin
+  New := Stack[Level];
+  Old := Current;
+  if New=Old then
+    exit;
+  for Tag := low(Tag) to high(Tag) do
+    if (Tag in Old) and not (Tag in New) then
+      W^.Add(HTML_TAGS[true,Tag]) else
+    if not (Tag in Old) and (Tag in New) then
+      W^.Add(HTML_TAGS[false,Tag]);
+  Current := New;
+end;
+
+procedure THTML.WriteAsHtml(P: PAnsiChar; W: PStringWriter);
 var B: PAnsiChar;
-    L: integer;
+    L: integer;               
     token: AnsiString;
 begin
-  if P<>nil then
-    while P^<>#0 do begin
-      case P^ of
-        '{': begin
-          B := P;
-          repeat inc(B) until B^ in [#0,'}'];
-          if B^<>#0 then begin
-            if Level<high(Stack) then begin
-              inc(Level);
-              Stack[Level] := Stack[Level-1];
-            end;
+  if P=nil then
+    exit;
+  if W=nil then
+    W := @WR;
+  while P^<>#0 do begin
+    case P^ of
+      #1: begin
+        SetCurrent(W);
+        repeat // #1...#1 is written directly with no conversion
+          inc(P);
+          case P^ of
+          #0: exit;
+          #1: break;
           end;
-        end;
-        '}': if Level>0 then dec(Level);
-        '<': begin
-          SetCurrent;
-          WR.Add(HTML_TAGS[false,hLT]);
-        end;
-        '>': begin
-          SetCurrent;
-          WR.Add(HTML_TAGS[false,hGT]);
-        end;
-        '\': begin
-          B := P;
-          repeat inc(B) until B^ in RTFEndToken;
-          L := B-P-1;
-          if L<=7 then begin
-            if L>0 then begin
-              SetString(Token,p+1,L);
-              if token='b' then
-                include(Stack[Level],hBold) else
-              if token='b0' then
-                exclude(Stack[Level],hBold) else
-              if token='i' then
-                include(Stack[Level],hItalic) else
-              if token='i0' then
-                exclude(Stack[Level],hItalic) else
-              if token='ul' then
-                include(Stack[Level],hUnderline) else
-              if token='ul0' then
-                exclude(Stack[Level],hUnderline) else
-              if token='strike' then
-                include(Stack[Level],hItalic) else
-              if token='f1' then
-                include(Stack[Level],hCode) else
-              if token='line' then
-                WR.Add(HTML_TAGS[false,hBR]) else
-              if token='pard' then
-                Stack[Level] := [] else
-              if token='par' then begin // should not occur normaly
-                SetCurrent;
-                WR.Add(HTML_TAGS[false,hP]);
-              end else begin
-                WR.Add('???').Add(Token);
-              end;
-            end;
-            inc(P,L+1);
-            if P^<>'\' then inc(P); // handle \\ as \
-            continue;
+          W^.Add(P^);
+        until false;          
+      end;
+      #10,#13: ; // just ignore control chars
+      '{': begin
+        B := P;
+        repeat inc(B) until B^ in [#0,'}'];
+        if B^<>#0 then begin
+          if Level<high(Stack) then begin
+            inc(Level);
+            Stack[Level] := Stack[Level-1];
           end;
-        end;
-        else begin
-          SetCurrent;
-          WR.Add(P^);
         end;
       end;
-      inc(P);
+      '}': if Level>0 then dec(Level);
+      '&': begin
+        SetCurrent(W);
+        W^.Add(HTML_TAGS[false,hAMP]);
+      end;
+      '<': begin
+        SetCurrent(W);
+        W^.Add(HTML_TAGS[false,hLT]);
+      end;
+      '>': begin
+        SetCurrent(W);
+        W^.Add(HTML_TAGS[false,hGT]);
+      end;
+      '\': begin
+        B := P;
+        repeat inc(B) until B^ in RTFEndToken;
+        L := B-P-1;
+        if L<=7 then begin
+          if L>0 then begin
+            SetString(Token,p+1,L);
+            if token='b' then
+              include(Stack[Level],hBold) else
+            if token='b0' then
+              exclude(Stack[Level],hBold) else
+            if token='i' then
+              include(Stack[Level],hItalic) else
+            if token='i0' then
+              exclude(Stack[Level],hItalic) else
+            if token='ul' then
+              include(Stack[Level],hUnderline) else
+            if token='ul0' then
+              exclude(Stack[Level],hUnderline) else
+            if token='strike' then
+              include(Stack[Level],hItalic) else
+            if token='f1' then
+              include(Stack[Level],hCode) else
+            if token='f0' then
+              exclude(Stack[Level],hCode) else
+            if token='line' then
+              W^.Add(HTML_TAGS[false,hBR]) else
+            if token='pard' then
+              Stack[Level] := [] else
+            if token='par' then begin // should not occur normaly
+              SetCurrent(W);
+              W^.Add(HTML_TAGS[false,hP]);
+            end else
+            if token='tab' then
+              W^.Add('&nbsp;') else
+            if (token<>'qc') and (token<>'ql') and (token<>'qr') and
+               (token<>'qj') and (token<>'shad') and 
+               (PWord(token)^<>ord('c')+ord('f')shl 8) and
+               (PWord(token)^<>ord('f')+ord('i')shl 8) and
+               (PWord(token)^<>ord('l')+ord('i')shl 8) and
+               (PWord(token)^<>ord('f')+ord('s')shl 8) and
+               (PWord(token)^<>ord('s')+ord('a')shl 8) and
+               (PWord(token)^<>ord('s')+ord('b')shl 8) then begin
+              // ignore \qc\ql\qr\qj\cf#\fi#\li#\fs#\sa#\sb#
+              OnError('Unknown token "%s"',[token]);
+              W^.Add('???').Add(Token);
+            end;
+          end else
+            if P[1]='\' then begin
+              W^.Add('\');
+              inc(P,2);
+              continue;
+            end;
+          inc(P,L+1);
+          if P^=#0 then
+            break;
+          continue;
+        end;
+      end;
+      else begin
+        if Stack[Level]<>Current then
+          SetCurrent(W);
+        W^.Add(P^);
+      end;
     end;
+    inc(P);
+  end;
 end;
+
 
 
 initialization
