@@ -175,6 +175,7 @@ resourcestring
   sMainPageDesc = 'Returns to the main documentation';
   sApiReference = 'API Reference';
 
+
 { TProjectBrowser }
 
 {$ifdef WITH_GRAPHVIZ}
@@ -1412,7 +1413,7 @@ var title,mark: string;
 begin
   title := format(text,[aUnit.Name]);
   if tmpWR=nil then
-    WR.AddRtfContent('{\sb220\b %s:par}',[title]) else begin
+    WR.AddRtfContent('{\sb220\b %s\b0\par}',[title]) else begin
     if sidetitle<>'' then begin
       if bookmark='' then
         mark := WR.RtfBookMark('','_'+sidetitle,false) else
@@ -1525,7 +1526,6 @@ begin
     result := p.Name;
 end;
 var highlight: boolean;
-    pag: string;
     OKs: array of (okNone, okHighlighted, okNormal);
     SL: TStringList;
 begin
@@ -1564,9 +1564,11 @@ begin
       if OKs[Integer(SL.Objects[i])]<>okNone then begin
         p := TPasItem(Items[Integer(SL.Objects[i])]);
         if tmpWR=nil then
-          pag := '\qc '+WR.RtfPageRefToString(PasItemBookmark(p),True,false);
-        WR.RtfRow([WR.RtfLinkToString(PasItemBookmark(p),'\ql{\f1\fs18 '+p.Name+'}'),
-          MainDescription(p.RawDescriptionInfo.Content),pag]);
+          WR.RtfRow(['\ql{\f1\fs18 '+p.Name+'}',
+            MainDescription(p.RawDescriptionInfo.Content),
+            '\qc '+WR.RtfPageRefToString(p.QualifiedName,True)]) else
+          WR.RtfRow([WR.RtfLinkToString(PasItemBookmark(p),p.Name),
+            MainDescription(p.RawDescriptionInfo.Content),'']);
       end;
       WR.RtfColsEnd.RtfPar;
     end;
@@ -1684,6 +1686,7 @@ begin
     if (logo<>'') and (Project.Pictures[logo]<>'') then
       WR.RtfImage(logo+' '+ValAt(Project.Pictures[logo],0),proj) else
       WR.AddRtfContent(proj);
+    WR.AddRtfContent(#1'<hr>'#1);
   end else begin
     tmpWR := nil;
     SideBar := nil;

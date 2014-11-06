@@ -272,6 +272,7 @@ type
     fGraphValues: TSection;
     SideBar: TProjectWriter;
     ApiFolder: string;
+    SADUnitNames: TStringList;
     // cross-references:
     ReferencePictures, // Picture Caption=Bookmark0,Bookmark1...
     ReferenceIndex,    // KeyWord 1=bookmark0,bookmark1...
@@ -371,6 +372,8 @@ begin
     exit;
   // Init Data + various TSection
   Data := TSectionsStorage.Create(aFileName); // SetData() will init all TSection
+  SADUnitNames := TStringList.Create;
+  SADUnitNames.Sorted := true;
 end;
 
 procedure TProject.SetData(aData: TSectionsStorage);
@@ -641,6 +644,7 @@ begin
   ReferenceDocuments.Free;
   TitleBookmark.Free;
   OpenDocuments;
+  SADUnitNames.Free;
   inherited;
 end;
 
@@ -989,8 +993,7 @@ begin
     // special [Test] | behavior
     if isTest then
       if line[1]='|' then begin
-        if pos('@',line)<>0 then
-          line := ExpandDocumentNames(line);
+        line := ExpandDocumentNames(line);
         case ColType of
         noCol: begin
           if line[2]='%' then begin // force manual table
@@ -1056,8 +1059,7 @@ begin
     '!','&','#','µ','$':
       WR.RtfCode(line);
     '-': begin                   
-      if pos('@',line)<>0 then
-        line := ExpandDocumentNames(line);
+      line := ExpandDocumentNames(line);
       WR.RtfList(line);
     end;
     '%': begin
@@ -1070,8 +1072,7 @@ begin
         WR.RtfFont(50).RtfImage(PictureFullLine(line,caption),caption).RtfFont(100);
     end;
     '|': begin
-      if pos('@',line)<>0 then
-        line := ExpandDocumentNames(line);
+      line := ExpandDocumentNames(line);
       WR.RtfColLine(copy(line,2,maxInt));
     end;
     else
@@ -1233,9 +1234,7 @@ begin
     end else begin
       // normal line = text paragrah, rtf-like formated
       WR.RtfText; // set Last -> update any pending {}
-      if pos('@',line)<>0 then
-        WR.AddRtfContent(ExpandDocumentNames(line)) else
-        WR.AddRtfContent(line);
+      WR.AddRtfContent(ExpandDocumentNames(line));
       WR.RtfPar;
     end;
     end;
@@ -1250,14 +1249,14 @@ procedure TProject.CreateDefaultDocument(const SectionName: string;
 var Ok: array[0..high(FRONTPAGE_OPTIONS)] of boolean;
     layout, title, desc, testdocname, Requirement,
     HeaderName, Purpose, WriteSummaryOf, item, par: string;
-{$ifdef USEPARSER}
-    SAD: TProjectBrowser; // contains all [SAD-Parse].SourceFile= details
-{$endif}
     i, j, d, n, ParseTitleOffset: integer;
     Source, DIDetails, Sec, RevSection: TSection;
     Test, TestDoc: PDocument; // [Test]
     Tests: array of TSection;
     Required: array of boolean; // [SAD-MENU-01].Source=Firmware -> Required[ParseFirmwareIndex] := true
+    {$ifdef USEPARSER}
+    SAD: array of TProjectBrowser; // contains all [SAD-Parse].SourceFile= details
+    {$endif}
 procedure RequiredSetOne(TestSection: TSection);
 function RequiredGetSource(TestSection: TSection): PChar;
 var Sec: TSection;
@@ -1322,6 +1321,9 @@ begin
     result := '';
 end;
 begin
+  {$ifdef USEPARSER}
+  SAD := nil;
+  {$endif}
   Doc := DocumentFind(SectionName);
   if Doc=nil then exit;
   TestDoc := DocumentFind(Doc.Params['DocByDescription']);
@@ -1479,9 +1481,6 @@ begin
     ForceLandscape else // contain a page jump inside the landscape setting
     if OK[0] or OK[1] or OK[2] or OK[3] or OK[4] or OK[6] then
       WR.RtfPage;
-{$ifdef USEPARSER}
-  SAD := nil;
-{$endif}
   if ReferenceTablesPos=0 then begin
     // used to write [TOC and] DocumentIndex=... tables after parsing
     ReferenceTablesPos := WR.len;
@@ -1494,6 +1493,19 @@ begin
     // 0. init W.TitlesList[] for TableOfContent if necessary
     if isTrue(Doc.Params['WriteTableOfContent']) then
       WR.TitlesList := TStringList.Create;
+{$ifdef USEPARSER}
+    if Doc.Params['Source']<>'' then begin
+      SetLength(SAD,length(Parse));
+      for i := 0 to high(SAD) do begin
+        SAD[i] := TProjectBrowser.Create(self);
+        // auto create units descriptions from source files
+        SAD[i].FillUnits(Parse[i],false);
+        with SAD[i].Units do
+          for j := 0 to Count-1 do
+            SADUnitNames.Add(UnitAt[j].Name+'.pas');
+      end;
+    end;
+{$endif}
     // 1. always write body of the main section (as Introduction)
     CreateRTFBody(Doc.Params);
 {$ifdef USEPARSER}
@@ -1512,7 +1524,6 @@ begin
         WR.RtfTitle(sGlobalArchitecture);
       CreateRTFBody(Source,1,true,true);
       // 2.1.2. get body+units from \SOURCE sections ([SAD-LIS],[SAD-EIA]...)
-      SAD := TProjectBrowser.Create(self);
       for i := 0 to high(Parse) do
       with Parse[i] do // 'SAD-LIS'
         if SameText(SectionNameKind,Doc.Params.SectionName) then begin
@@ -1523,26 +1534,25 @@ begin
           if ParseTitleOffset>0 then
             WR.RtfTitle(title,1,true,SectionNameValue);
           CreateRTFBody(Parse[i],2);
-          // auto create units descriptions from source files
-          SAD.FillUnits(Parse[i],false);
           // write unit table
-          if SAD.Units.Count>0 then begin
+          if SAD[i].Units.Count>0 then begin
             WR.RtfTitle(title+' '+sSourceCodeImplementation,ParseTitleOffset,
               true,'SIDE_'+title);
             if WR.HandlePages then
               WR.RtfTitle(format(sUsedUnitsN,[title]),ParseTitleOffset+1);
             WR.AddRtfContent(sUsedUnitsTextN,[title]);
-            SAD.RtfUsesUnits(WR,ApiFolder);
+            SAD[i].RtfUsesUnits(WR,ApiFolder);
             // write all units descriptions
             if isTrue(ParseSAD.Params['WithAllfields']) then
               par := '*' else
               par := ParseSAD.Params['UnitsUsed'];
+            if i>0 then // add description once
+              SAD[i].UnitsDescription.AddStrings(SAD[i-1].UnitsDescription);
             if WR.HandlePages then
-              SAD.RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,'','',Footer) else
-              SAD.RtfUsesUnitsDescription(WR,0,par,ApiFolder,title,Footer)
+              SAD[i].RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,'','',Footer) else
+              SAD[i].RtfUsesUnitsDescription(WR,0,par,ApiFolder,title,Footer)
           end;
         end;
-      SAD.Free;
       // 2.2. second part: follow \LAYOUT order
       title := format(sImplicationsN,[Doc.Owner.ItemName]);
       ForceFooter(format('%s - %s',[Doc.Params.ItemName,title]));
@@ -1616,6 +1626,10 @@ begin
     CreateRTFDetails(0,true) else // write main parts, following DILayout
     CreateRTFDetails(1,false); // write DI or SAD-like documents second part
   CloseRtf(SaveFormat);
+  {$ifdef USEPARSER}
+  for i := 0 to high(SAD) do
+    SAD[i].Free;
+  {$endif}
 end;
 
 procedure TProject.CreateSectionDocument(const SectionName: string);
@@ -1794,7 +1808,7 @@ begin
   i := pos('/',un);
   if i>0 then
     aAbbrev := copy(un,i+1,100) else
-    aAbbrev := un;
+    aAbbrev := ExtractFileName(un);
   aAbbrev := '\qc{\i '+ValAt(aAbbrev,0,'.')+'}';
   if WR.HandlePages then
     aPages := '\qc '+WR.RtfPageRefToString(un,true) else
@@ -2088,11 +2102,10 @@ end;
 
 function TProject.ExpandDocumentNames(text: string): string;
 // '@DI@' -> '{\i Design Input Product Specifications} (Design Input) document'
-var i,j,k,aTitleBookmark: integer;
-    DocName, Ext, Caption, BookMark: string;
+var i,j,k,o,diff,aTitleBookmark: integer;
+    fn,fn2, DocName, Ext, Caption, BookMark, HTTP: string;
     aSec, aDoc, GraphV: TSection;
-    ForcePicturePage: boolean;
-    HTTP: string;
+    pasFound, ForcePicturePage: boolean;
 begin
   repeat
     i := Pos('@http://',text);
@@ -2233,6 +2246,52 @@ begin
     end;
     insert(DocName,text,i);
     inc(j,length(DocName));
+  until false;
+  j := 1;
+  if (SADUnitNames.Count>0) and not WR.HandlePages then
+  repeat
+    i := PosEx('{\f1\fs20 ',text,j);
+    if i=0 then break;
+    inc(i,10);
+    k := PosEx('}',text,i);
+    if k=0 then
+      break;
+    repeat
+      pasFound := false;
+      o := i;
+      while (text[i] in [#1,'A'..'Z','a'..'z','_','0'..'9','.']) and (i<k) do begin
+        case text[i] of
+        #1: if i=o then begin
+              repeat inc(i) until (i>=k) or (text[i]=#1);
+              if i>=k then break;
+              o := i+1;
+            end else
+              break;
+        '.': if IdemPChar(@text[i+1],'PAS') then
+              pasFound := true;
+        end;
+        inc(i);
+      end;
+      if (i<=o) or not pasFound then
+        break;
+      fn := copy(text,o,i-o);
+      if SADUnitNames.IndexOf(fn)>=0 then begin
+        if WR.HandlePages then
+          BookMark := fn else
+          BookMark := ApiFolder+'/'+ValAt(ExtractFileName(fn),0,'.')+'.html#';
+        fn2 := WR.RtfLinkToString(BookMark,fn);
+        diff := length(fn2)-length(fn);
+        delete(text,o,i-o);
+        insert(fn2,text,o);
+        inc(i,diff);
+        inc(k,diff);
+      end;
+      while (i<k) and not (text[i] in ['A'..'Z','a'..'z','_','0'..'9']) do
+        if IdemPChar(@text[i],'\LINE') then
+          inc(i,5) else
+          inc(i);
+    until i=k;
+    j := k;
   until false;
   result := text;
 end;

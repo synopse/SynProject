@@ -335,7 +335,7 @@ type
     Stack: array[0..20] of THtmlTags; // stack to handle { }
     fColsAreHeader: boolean;
     fColsMD: TIntegerDynArray;
-    fContent,fAuthor,fTitle: string;
+    fContent,fAuthor,fTitle,fCompany: string;
     fSavedWriter: TStringWriter;
     procedure SetLast(const Value: TLastRTF); override;
     procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer=80); override;
@@ -506,7 +506,10 @@ const
       '</head>'#13#10 +
       '<body>';
   CONTENT_FOOTER =
-      #13#10'</div></div></div>'#13#10'</body></html>';
+      #13#10'</div></div></div>'#13#10+
+      '<div class="footer">&copy;Copyright %d, %s - all rights reserved.<br />'+
+      'Created using Open Source <a href=http://synopse.info/fossil/wiki?name='+
+      'SynProject>SynProject</a> %d.%d.</div></body></html>';
   SIDEBAR_HEADER =
       #1'<div class="sidebar"><div class="sidebarwrapper">'#1;
   SIDEBAR_FOOTER =
@@ -2545,7 +2548,7 @@ end;
 function THTML.Clone: TProjectWriter;
 begin
   result := inherited Clone;
-  (result as THTML).SetInfo(fTitle,fAuthor,fContent,'','');
+  (result as THTML).SetInfo(fTitle,fAuthor,fContent,'',fCompany);
 end;
 
 procedure THTML.SetInfo(const aTitle,aAuthor,aSubject,aManager,aCompany: string);
@@ -2556,6 +2559,8 @@ begin
     fAuthor := aAuthor;
   if aSubject<>'' then
     fContent := aSubject;
+  if aCompany<>'' then
+    fCompany := aCompany;
 end;
 
 procedure THTML.Clear;
@@ -3187,11 +3192,17 @@ begin
   assert(P-pointer(result)=len);
 end;
 
+var
+  FILEVERSION: Integer=-1;
+
 procedure THTML.SaveToFile(Format: TSaveFormat; OldWordOpen: boolean);
 var html: AnsiString;
 begin
   RtfText;
-  WR.Add(CONTENT_FOOTER);
+  if FILEVERSION=-1 then
+    FILEVERSION := GetFileVersion(ParamStr(0));
+  with LongRec(FILEVERSION) do
+    WR.Add(CONTENT_FOOTER,[CurrentYear,fCompany,Hi,Lo]);
   if Format<>fHtml then
     exit;
   if OldWordOpen then
@@ -3240,7 +3251,7 @@ end;
 
 procedure THTML.WriteAsHtml(P: PAnsiChar; W: PStringWriter);
 var B: PAnsiChar;
-    L: integer;               
+    L: integer;
     token: AnsiString;
 begin
   if P=nil then
@@ -3338,6 +3349,8 @@ begin
               continue;
             end;
           inc(P,L+1);
+          if P^=' ' then
+            inc(P);
           if P^=#0 then
             break;
           continue;

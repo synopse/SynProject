@@ -1094,7 +1094,6 @@ begin
   result := aCSV;
 end;
 
-
 type
   PJumpCode = ^TJumpCode;
   TJumpCode = packed record
