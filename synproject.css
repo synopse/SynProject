@@ -99,6 +99,18 @@ div.sidebar {
     text-align: left;
 }
 
+@media (max-width: 1200px) {
+  body {
+    margin: 0;
+  }
+}
+@media (max-width: 767px) {
+  div.sidebar {
+    float: none;
+	padding: 0 0 0 80px
+  }
+}
+
 div.sidebar h3, div.sidebar h4 {
     margin: 1em 0 0.5em 0;
     font-size: 1em;
@@ -159,7 +171,6 @@ h1 {
     padding: 2em 0 0 0;
     font-size: 2em;
     color: black;
-    /* color: #11557C; */
 }
 
 h2 {
@@ -276,7 +287,7 @@ div.topic {
 table {
     border-collapse: collapse;
     margin: 0 -0.5em 0 -0.5em;
-	color: navy;
+    color: #00498A;
 }
 
 table td, table th {
@@ -287,12 +298,8 @@ table td, table th {
     border-bottom: 1px solid #aaa;
 }
 
-table pre {
-	color: navy;
-}
-
-table code {
-	color: navy;
+table pre, table code {
+    color: #00498A;
 }
 
 div.admonition, div.warning {

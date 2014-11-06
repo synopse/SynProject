@@ -25,7 +25,7 @@ unit ProjectRTF;
   - TRTF is now a TClass, with virtual methods to allow not only RTF backend
 
   Revision 1.18
-  - new THTML backend, to write HTML content using BootStrap template
+  - new THTML backend, to write HTML content
 
 *)
 
@@ -265,6 +265,7 @@ type
     procedure SetLast(const Value: TLastRTF); override;
     procedure SetLandscape(const Value: boolean); override;
     procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer=80); override;
+    constructor InternalCreate; override;
   public
     constructor Create(const aLayout: TProjectLayout;
       aDefFontSizeInPts: integer; // in points
@@ -336,7 +337,6 @@ type
     fColsMD: TIntegerDynArray;
     fContent,fAuthor,fTitle: string;
     fSavedWriter: TStringWriter;
-    constructor InternalCreate; override;
     procedure SetLast(const Value: TLastRTF); override;
     procedure RtfKeywords(line: string; const KeyWords: array of string; aFontSize: integer=80); override;
     procedure SetLandscape(const Value: boolean); override;
@@ -352,6 +352,7 @@ type
       aLandscape: boolean = false; aCloseManualy: boolean = false;
       aTitleFlat: boolean = false; const aF0: string = 'Calibri';
       const aF1: string = 'Consolas'; aMaxTitleOutlineLevel: integer=5); override;
+    function Clone: TProjectWriter; override;
     procedure InitClose; override; // if CloseManualy was true
     procedure SaveToFile(Format: TSaveFormat; OldWordOpen: boolean); override;
     procedure Clear; override;
@@ -491,7 +492,7 @@ const
       '','','','</ul>','</li>','</h%d>','</tr></tbody>','</tr></thead>','</th>'));
 
   // format() parameters: [QuotedContent,QuotedAuthor,EscapedPageTitle]
-  BOOTSTRAP_HEADER =
+  CONTENT_HEADER =
     '<!DOCTYPE html>' + #13#10 +
     '<html lang="en">' + #13#10 +
       '<head>' + #13#10 +
@@ -501,16 +502,17 @@ const
         '<meta name="description" content=%s>' + #13#10 +
         '<meta name="author" content=%s>' + #13#10 +
         '<title>%s</title>' + #13#10 +
-        '<link rel="stylesheet" href="synproject.css">'#13#10+
-        //'<link rel="stylesheet" href="https://docs.python.org/3.5/_static/pydoctheme.css">'#13#10+
-        //'<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap.min.css">' + #13#10 +
-        '<link href="file:///D:/Dev/Lib/SQLite3/Samples/30 - MVC Server/Views/.static/blog.css" rel="stylesheet">'+
-        //'<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap-theme.min.css">' + #13#10 +
-        //'<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.0/js/bootstrap.min.js"></script>' + #13#10 +
+        '<link rel="stylesheet" href="%ssynproject.css">'#13#10+
       '</head>'#13#10 +
       '<body>';
-  BOOTSTRAP_FOOTER =
+  CONTENT_FOOTER =
       #13#10'</div></div></div>'#13#10'</body></html>';
+  SIDEBAR_HEADER =
+      #1'<div class="sidebar"><div class="sidebarwrapper">'#1;
+  SIDEBAR_FOOTER =
+     #1#13#10'</div></div>'#13#10+
+     '<div class="document"><div class="documentwrapper">'+
+     '<div class="bodywrapper"><div class="body">'#13#10#1;
 
 procedure CSVValuesAddToStringList(const aCSV: string; List: TStrings); overload;
 // add all values in aCSV into List[]
@@ -1341,6 +1343,9 @@ function TProjectWriter.Clone: TProjectWriter;
 begin
   result := TProjectWriterClass(ClassType).InternalCreate;
   result.FontSize := FontSize;
+  result.Layout := Layout;
+  result.Width := Width;
+  result.PicturePath := PicturePath;
 end;
 
 constructor TProjectWriter.InternalCreate;
@@ -1663,7 +1668,6 @@ constructor TRTF.Create(const aLayout: TProjectLayout;
 var i: integer;
 begin
   inherited;
-  HandlePages := true;
   WR.AddShort('{\rtf1\ansi\ansicpg').AddWord(aCodePage).AddShort('\deff0\deffs').
     AddInteger(aDefFontSizeInPts).AddShort('\deflang').AddInteger(aDefLang).
     AddShort('{\fonttbl{\f0\fswiss\fcharset0 ').Add(aF0).
@@ -1695,6 +1699,12 @@ begin
     AddShort('{\header ').Add(Header).Add('}'); *)
   if not CloseManualy then
     InitClose;
+end;
+
+constructor TRTF.InternalCreate;
+begin
+  inherited;
+  HandlePages := true;
 end;
 
 procedure TRTF.InitClose;
@@ -2524,17 +2534,28 @@ begin
   result := self;
 end;
 
-constructor THTML.InternalCreate;
-begin
-  inherited InternalCreate;
-end;
-
 constructor THTML.Create(const aLayout: TProjectLayout; aDefFontSizeInPts,
   aCodePage, aDefLang: integer; aLandscape, aCloseManualy,
   aTitleFlat: boolean; const aF0, aF1: string; aMaxTitleOutlineLevel: integer);
 begin
   inherited;
   { TODO : multi-page layout }
+end;
+
+function THTML.Clone: TProjectWriter;
+begin
+  result := inherited Clone;
+  (result as THTML).SetInfo(fTitle,fAuthor,fContent,'','');
+end;
+
+procedure THTML.SetInfo(const aTitle,aAuthor,aSubject,aManager,aCompany: string);
+begin
+  if aTitle<>'' then
+    fTitle := aTitle;
+  if aAuthor<>'' then
+    fAuthor := aAuthor;
+  if aSubject<>'' then
+    fContent := aSubject;
 end;
 
 procedure THTML.Clear;
@@ -2564,9 +2585,9 @@ end;
 
 function THTML.RtfBig(const text: string): TProjectWriter;
 begin
-  WR.Add('<div class="lead">');
+  WR.Add('<h2>');
   AddRtfContent(text);
-  WR.Add('</div>').AddCRLF;
+  WR.Add('</h2>').AddCRLF;
   result := self;
 end;
 
@@ -2579,11 +2600,11 @@ begin
       result := BookmarkName else
       result := RtfBookMarkName(BookmarkName);
     result := '<a name="'+result+'"></a>';
-    if Text<>'' then
-      if fStringPlain then
-        result := result+ContentAsHtml(Text) else
-        result := #1+result+#1+Text;
   end;
+  if Text<>'' then
+    if fStringPlain then
+      result := result+ContentAsHtml(Text) else
+      result := #1+result+#1+Text;
 end;
 
 procedure THTML.RtfCols(const ColXPos: array of integer;
@@ -2733,28 +2754,41 @@ begin
       delete(src,1,i-1);
     src := StringReplaceAll(StringReplaceAll(src,'Times New Roman','Arial'),#13,'');
     repeat
+      i := Pos('<g ',src);
+      if i=0 then break;
+      j := PosEx('>',src,i);
+      if j<i then break;
+      delete(src,i,j-i+1);
+    until false;
+    repeat
       i := Pos('<title>',src);
       if i=0 then break;
-      j := Pos('</title>',src);
+      j := PosEx('</title>',src,i);
       if j<i then break;
       delete(src,i,j-i+8);
     until false;
+    src := StringReplaceAll(src,'</g>','');
+    src := StringReplaceAll(src,'</svg>','</g></svg>');
     src := trim(StringReplaceAll(src,'&amp;','&'));
-    result := format('<svg viewBox="0 0 %d %d" width="%d" height="%d">',
+    result := format('<svg viewBox="0 0 %d %d" width="%d" height="%d">'+
+      '<g id="graph" class="graph" style="font-size:18.67">',
       [w,h,(w*2)div 3,(h*2)div 3])+src;
   end else begin
     alt := ExtractFileName(aFileName);
-    result := '<img src="img/'+alt+'" alt="'+alt+'">';
-    alt := IncludeTrailingPathDelimiter(DestPath)+'img\'+alt;
-    if not FileExists(alt) then begin
-      if not DirectoryExists(ExtractFilePath(alt)) then
-        CreateDir(ExtractFilePath(alt));
-      CopyFile(aFileName,alt);
+    if DestPath='' then // ='' if from sub html
+      result := '<img src="../img/'+alt+'" alt="'+alt+'">' else begin
+      result := '<img src="img/'+alt+'" alt="'+alt+'">';
+      alt := IncludeTrailingPathDelimiter(DestPath)+'img\'+alt;
+      if not FileExists(alt) then begin
+        if not DirectoryExists(ExtractFilePath(alt)) then
+          CreateDir(ExtractFilePath(alt));
+        CopyFile(aFileName,alt);
+      end;
     end;
   end;
   if Caption<>'' then
     result := format('<figure>%s<figcaption>%s</figcaption></figure>',
-      [result,ContentAsHtml(Caption)]);
+      [result,ContentAsHtml(StringReplaceAll(Caption,'\line',''))]);
   if not fStringPlain then
     result := #1+result+#1;
 end;
@@ -2777,11 +2811,22 @@ end;
 
 function THTML.RtfLinkToString(const aBookName, aText: string;
   bookmarkNormalized: boolean): string;
+var i: integer;
+    f,b: string;
 begin
-  if bookmarkNormalized then
-    result := aBookName else
-    result := RtfBookMarkName(aBookName);
-  result := Format(HTML_TAGS[false,hAHref],['#'+result])+ContentAsHtml(aText)+
+  i := pos('#',aBookName);
+  if i>0 then begin
+    f := copy(aBookName,1,i-1);
+    b := copy(aBookName,i+1,100);
+  end else
+    b := aBookName;
+  if b<>'' then begin
+    if not bookmarkNormalized then
+      b := RtfBookMarkName(b);
+    result := f+'#'+b;
+  end else
+    result := f;
+  result := Format(HTML_TAGS[false,hAHref],[result])+ContentAsHtml(aText)+
     HTML_TAGS[true,hAHref];
   if not fStringPlain then
     result := #1+result+#1;
@@ -3075,8 +3120,10 @@ begin
 end;
 
 function UTF8Encode(const winansi: string): utf8string;
-const VOIDP=ord('<')+ord('p')shl 8+ord('>')shl 16+ord('<')shl 24+
-            ord('/')shl 32+ord('p')shl 40+ord('>')shl 48+13 shl 56;
+const VOIDP1=ord('<')+ord('p')shl 8+ord('>')shl 16+ord('<')shl 24;
+      VOIDP2=ord('/')+ord('p')shl 8+ord('>')shl 16+13 shl 24;
+      VOIDP3=ord('<')+ord('p')shl 8+ord('>')shl 16+ord(' ')shl 24;
+      VOIDP4=ord('<')+ord('/')shl 8+ord('p')shl 16+ord('>') shl 24;
       CRLF=$0a0d0a0d;
 var len: Integer;
     S,E,P: PAnsiChar;
@@ -3089,9 +3136,21 @@ begin
       inc(S,2);
       dec(len,2);
     end else
-    if PInt64(S)^=VOIDP then begin
+    if (PInteger(S)^=VOIDP1) and (PInteger(S+4)^=VOIDP2) then begin
       inc(S,9);
       dec(len,9);
+      while PWord(S)^=$a0d do begin
+        inc(S,2);
+        dec(len,2);
+      end;
+    end else
+    if (PInteger(S)^=VOIDP3) and (PInteger(S+4)^=VOIDP4) then begin
+      inc(S,8);
+      dec(len,8);
+      while PWord(S)^=$a0d do begin
+        inc(S,2);
+        dec(len,2);
+      end;
     end else begin
       if S^>#$7f then
         inc(len);
@@ -3103,8 +3162,16 @@ begin
   while S<E do
     if PInteger(S)^=CRLF then
       inc(S,2) else
-    if PInt64(S)^=VOIDP then
-      inc(S,9) else begin
+    if (PInteger(S)^=VOIDP1) and (PInteger(S+4)^=VOIDP2) then begin
+      inc(S,9);
+      while PWord(S)^=$a0d do 
+        inc(S,2);
+    end else
+    if (PInteger(S)^=VOIDP3) and (PInteger(S+4)^=VOIDP4) then begin
+      inc(S,8);
+      while PWord(S)^=$a0d do 
+        inc(S,2);
+    end else begin
       if S^>#$7f then begin
         P[0] := AnsiChar($C0 or (ord(S^) shr 6));
         P[1] := AnsiChar($80 or (ord(S^) and $3F));
@@ -3124,20 +3191,14 @@ procedure THTML.SaveToFile(Format: TSaveFormat; OldWordOpen: boolean);
 var html: AnsiString;
 begin
   RtfText;
-  WR.Add(BOOTSTRAP_FOOTER);
+  WR.Add(CONTENT_FOOTER);
   if Format<>fHtml then
     exit;
-  html := UTF8Encode(SysUtils.Format(BOOTSTRAP_HEADER,[AnsiQuotedStr(fContent,'"'),
-    AnsiQuotedStr(fAuthor,'"'),HtmlEncode(fTitle)])+WR.Data);
+  if OldWordOpen then
+    html := '../';
+  html := UTF8Encode(SysUtils.Format(CONTENT_HEADER,[AnsiQuotedStr(fContent,'"'),
+    AnsiQuotedStr(fAuthor,'"'),HtmlEncode(fTitle),html])+WR.Data);
   StringToFile(FileName,html);
-end;
-
-procedure THTML.SetInfo(const aTitle, aAuthor, aSubject, aManager,
-  aCompany: string);
-begin
-  fTitle := aTitle;
-  fAuthor := aAuthor;
-  fContent := aSubject;
 end;
 
 procedure THTML.SetLandscape(const Value: boolean);

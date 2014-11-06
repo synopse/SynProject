@@ -53,7 +53,7 @@ uses
 
 type
   TProjectFooter =  procedure(WR: TProjectWriter; const FooterTitle: string) of object;
-  
+
   /// Delphi project parser (PasDoc based), for creating source documentation
   TProjectBrowser = class(TPasDocLight)
   private
@@ -97,7 +97,7 @@ type
     // write description of this Item, RTF-formated
     function RtfDescription(Item: TPasItem; W: TProjectWriter): boolean;
     // write used unit table
-    procedure RtfUsesUnits(WR: TProjectWriter);
+    procedure RtfUsesUnits(WR: TProjectWriter; const ExternalPath: string);
 {$ifdef WITH_GRAPHVIZ}
     // create graphics with diagrams
     function GraphVizEmf(aSection: TSection): boolean;
@@ -106,10 +106,10 @@ type
 {$endif}
     // write the description of this unit
     procedure RtfUnitDescription(aUnit: TPasUnit; WR: TProjectWriter; TitleLevel: integer;
-      withFields: boolean; OnFooter: TProjectFooter);
+      withFields: boolean; const ExternalPath,ExternalTitle: string; OnFooter: TProjectFooter);
     // write all used unit detailled description if not already done
     procedure RtfUsesUnitsDescription(WR: TProjectWriter; TitleLevel: integer;
-      const CSVUnitsWithFields: string; OnFooter: TProjectFooter);
+      const CSVUnitsWithFields,ExternalPath,ExternalTitle: string; OnFooter: TProjectFooter);
     // the associated project
     property Project: TProject read FProject;
     // the current class hierarchy
@@ -160,21 +160,26 @@ uses
 
 resourcestring
   sUsedFor = 'Used for';
-  sImplementedInN = '%s implemented in the {\i %s} unit';
+  sImplementedInN = '%s implemented in the {\i %%s} unit';
   sPurpose = 'Purpose';
   sQuotedInN = 'The {\i %s} unit is quoted in the following items';
   sUnitN = '%s unit';
   sUnitsUsedInN = 'Units used in the {\i %s} unit';
+  sUnitsUsed = 'Uses';
   sUnitName = 'Unit Name';
   sUnitsLocatedInN = 'Units located in the "%s" directory';
   sSourceFileName = 'Source File Name';
   sUnitDependenciesInDir = 'Unit dependencies in the "%s" directory';
+  sClassHierarchy = '{\i %s} class hierarchy';
+  sHierarchy = 'Hierarchy';
+  sMainPageDesc = 'Returns to the main documentation';
+  sApiReference = 'API Reference';
 
 { TProjectBrowser }
 
 {$ifdef WITH_GRAPHVIZ}
 procedure TProjectBrowser.AddGraph(graph: string; WR: TProjectWriter);
-var caption: string;
+var img,caption: string;
 begin
   LoadGraphValues;
   graph := GraphDirName+graph;
@@ -187,8 +192,8 @@ begin
     graph := graph+'.gif';
   if FileExists(Project.FileNameDir+graph) then begin
     WR.RtfFont(50);
-    WR.RtfImage(
-        Project.PictureFullLine(graph,caption),caption).RtfFont(100);
+    img := Project.PictureFullLine(graph,caption,nil,WR<>Project.WR);
+    WR.RtfImage(img,caption).RtfFont(100);
   end;
 end;
 {$endif}
@@ -414,10 +419,10 @@ begin // Section = [SAD-EIA] e.g.
     for i := 0 to Units.Count-1 do
     with TPasUnit(Units[i]) do begin
       if IdemPChar(pointer(SourceFileName),pointer(UpperDefaultPath)) then
-        OutputFileName := copy(SourceFileName,length(UpperDefaultPath)+1,maxInt) else
-        OutputFileName := SourceFileName;
+        DisplayFileName := copy(SourceFileName,length(UpperDefaultPath)+1,maxInt) else
+        DisplayFileName := SourceFileName;
       if FCacheReaderSAE<>nil then begin // override by hand-made description
-        j := FCacheReaderSAE.ZipNameIndexOf(OutputFileName);
+        j := FCacheReaderSAE.ZipNameIndexOf(DisplayFileName);
         if j<0 then
           j := FCacheReaderSAE.ZipNameIndexOf(SourceFileName);
         if j>=0 then begin
@@ -1029,7 +1034,7 @@ begin
       if (result[i+1]='-') or (i=1) then
         delete(result,i,1) else
         result[i] := '-';
-  if Result='' then
+  if result='' then
     exit; // avoid GPF
   if result[length(result)]='-' then begin
     if not addLastMinus then
@@ -1103,7 +1108,7 @@ begin
   LNode := ClassHierarchy.FirstItem;
   if LNode=nil then exit;
   GraphHead := '';
-  GraphTitle := '{\i '+GraphTitle+'} class hierarchy';
+  GraphTitle := Format(sClassHierarchy,[GraphTitle]);
   Dep.Lines.Clear;
   while LNode<>nil do begin
     if (LNode.Parent<>nil) and (LNode.Parent.Name <> '') then
@@ -1128,7 +1133,7 @@ begin
     for u := 0 to Units.Count-1 do
     with TPasUnit(Units[u]) do
     if isUnit and not CSVContains(Ignore,Name) then begin
-      item := ExtractFilePath(OutputFileName);
+      item := ExtractFilePath(DisplayFileName);
       if item<>dir then begin // directory change -> create graph
         if dir<>'' then
           CreateEmf(GraphFileNameOK(dir,false));
@@ -1160,7 +1165,7 @@ begin
           Dep.AddCSVValue(p.Name,p2.Name,true);
         end;
       end;
-      CreateEmf(FileNameOk(OutputFileName,false));
+      CreateEmf(FileNameOk(DisplayFileName,false));
     end; *)
     // 2. graphs of full class hierarchy
     CreateClassHierarchy;
@@ -1172,7 +1177,7 @@ begin
       CreateClassHierarchyFor(un);
       GraphTitle := un.Name;
       DestDir := Project.FileNameDir+GraphDirName;
-      CreateClassEmf(GraphFileNameOk(ValAt(un.OutputFileName,0,'.'),false));
+      CreateClassEmf(GraphFileNameOk(ValAt(un.DisplayFileName,0,'.'),false));
     end;
   except
     on E: Exception do
@@ -1395,10 +1400,30 @@ begin
 end;
 
 
-procedure TProjectBrowser.RtfUnitDescription(aUnit: TPasUnit; WR: TProjectWriter; TitleLevel: integer;
-  withFields: boolean; OnFooter: TProjectFooter);
+procedure TProjectBrowser.RtfUnitDescription(aUnit: TPasUnit; WR: TProjectWriter;
+  TitleLevel: integer; withFields: boolean; const ExternalPath,ExternalTitle: string;
+  OnFooter: TProjectFooter);
 var procnames: string; // CSV TClass.Funct,globalproc to be highlighted
     unitName: string;
+    tmpWR, SideBar: TProjectWriter;
+    mainWRFileName: string;
+procedure WRTitle(const text,sidetitle: string; const bookmark: string='');
+var title,mark: string;
+begin
+  title := format(text,[aUnit.Name]);
+  if tmpWR=nil then
+    WR.AddRtfContent('{\sb220\b %s:par}',[title]) else begin
+    if sidetitle<>'' then begin
+      if bookmark='' then
+        mark := WR.RtfBookMark('','_'+sidetitle,false) else
+        mark := bookmark;
+      SideBar.RtfLinkTo(mark,'{\b '+sidetitle+'}').
+        AddRtfContent(#1'<br><small>'#1+title+#1'</small>'#1).RtfPar;
+    end;
+    if bookmark='' then
+      WR.RtfTitle(title,TitleLevel+1);
+  end;
+end;
 procedure Details(Items: TPasItems; const ItemName: string;
   withVoid, insideTable, ConstsResourceOnly, HeadLines: boolean);
 procedure FullDeclCorrect(var decl: string);
@@ -1419,9 +1444,10 @@ var i, j: integer;
     isCio, hasFields: boolean;
 procedure LinePage(const SectionNameValue: string);
 begin
-  line.RtfLinkTo(SectionNameValue,SectionNameValue);
   if line.HandlePages then
-    line.AddRtfContent(' (page ').RtfPageRefTo(SectionNameValue,true).AddRtfContent(')');
+    line.RtfLinkTo(SectionNameValue,SectionNameValue).
+      AddRtfContent(' (page ').RtfPageRefTo(SectionNameValue,true).AddRtfContent(')') else
+    line.RtfLinkTo(mainWRFileName+SectionNameValue,SectionNameValue);
 end;
 procedure Field(Fields: TPasItems; const FieldName: string);
 var f, i: integer;
@@ -1460,7 +1486,7 @@ begin
               line.RtfPar;
             line.AddRtfContent('{');
             line.RtfBookMark('\i '+sUsedFor+' ',
-              BookMarkHash(m.MyUnit.OutputFileName+'.'+fullName),true);
+              BookMarkHash(m.MyUnit.DisplayFileName+'.'+fullName),true);
             highlight := false;
           end else
             line.AddRtfContent(', ');
@@ -1492,7 +1518,14 @@ begin
       exit;
   result := false;
 end;
+function PasItemBookmark(p: TPasItem): string;
+begin
+  if tmpWR=nil then
+    result := p.QualifiedName else
+    result := p.Name;
+end;
 var highlight: boolean;
+    pag: string;
     OKs: array of (okNone, okHighlighted, okNormal);
     SL: TStringList;
 begin
@@ -1521,20 +1554,19 @@ begin
     end;
     if not ok then
       exit;
-    WR.AddRtfContent('{\sb220\b ').
-      AddRtfContent(sImplementedInN,[ItemName,aUnit.Name]).
-      AddRtfContent(':\b0\par}');
+    WRTitle(format(sImplementedInN,[ItemName]),ItemName);
     if HeadLines then begin
       WR.RtfColsPercent([26,66,8],false,true,true,'\trhdr');
-      WR.RtfRow(['\b\ql '+ItemName,sDescription,'\qc '+sPage+'\b0'],true);
+      WR.RtfRow(['\b\ql '+ItemName,sDescription,Project.PageTableHeader],true);
       WR.RtfColsPercent([26,66,8],false,true,true,'\trkeep');
       SL.Sort;
       for i := 0 to SL.Count-1 do
       if OKs[Integer(SL.Objects[i])]<>okNone then begin
         p := TPasItem(Items[Integer(SL.Objects[i])]);
-        WR.RtfRow(['\ql{\f1\fs18 '+p.Name+'}',
-          MainDescription(p.RawDescriptionInfo.Content),
-          '\qc '+WR.RtfPageRefToString(p.QualifiedName,True,false)]);
+        if tmpWR=nil then
+          pag := '\qc '+WR.RtfPageRefToString(PasItemBookmark(p),True,false);
+        WR.RtfRow([WR.RtfLinkToString(PasItemBookmark(p),'\ql{\f1\fs18 '+p.Name+'}'),
+          MainDescription(p.RawDescriptionInfo.Content),pag]);
       end;
       WR.RtfColsEnd.RtfPar;
     end;
@@ -1608,7 +1640,9 @@ begin
         if not highlight then
           line.AddRtfContent('}.');
       end;
-      WR.RtfBookMark('',p.QualifiedName,false);
+      if tmpWR<>nil then
+        WR.RtfTitle(p.Name,TitleLevel+2,true,PasItemBookmark(p)) else
+        WR.RtfBookMark('',PasItemBookmark(p),false);
       if insideTable and WR.HandlePages then
         WR.RtfRow([line.Data]) else
         line.RtfPar.SaveToWriter(WR);
@@ -1629,31 +1663,58 @@ end;
 var i,j: integer;
     p: TPasItem;
     ok: boolean;
+    logo,proj,unitN: string;
 begin
   unitName := aUnit.Name+'.pas';
-  if Assigned(OnFooter) then begin
-    WR.RtfEndSection;
-    OnFooter(WR,format(sUnitN,[unitName]));
-    WR.RtfParDefault;
+  unitN := format(sUnitN,[unitName]);
+  if (ExternalPath<>'') and WR.InheritsFrom(THTML) then begin
+    proj := Project.Project['Name']+' ';
+    tmpWR := WR.Clone;
+    tmpWR.FileName := IncludeTrailingPathDelimiter(WR.DestPath)+ExternalPath;
+    if not DirectoryExists(tmpWR.FileName) then
+      CreateDir(tmpWR.FileName);
+    tmpWR.FileName := tmpWR.FileName+'\'+aUnit.Name+'.html';
+    tmpWR.SetInfo(unitName,'',proj+unitN,'','');
+    mainWRFileName := '../'+ChangeFileExt(ExtractFileName(WR.FileName),'.html')+'#';
+    WR := tmpWR;
+    SideBar := WR.Clone.AddRtfContent(SIDEBAR_HEADER).RtfText;
+    WRTitle(sMainPageDesc,ExternalTitle,mainWRFileName+'SIDE_'+ExternalTitle);
+    proj := '{\b '+proj+sApiReference+'}';
+    logo := Project.Project['Logo'];
+    if (logo<>'') and (Project.Pictures[logo]<>'') then
+      WR.RtfImage(logo+' '+ValAt(Project.Pictures[logo],0),proj) else
+      WR.AddRtfContent(proj);
+  end else begin
+    tmpWR := nil;
+    SideBar := nil;
+    if Assigned(OnFooter) then begin
+      WR.RtfEndSection;
+      OnFooter(WR,unitN);
+      WR.RtfParDefault;
+    end;
   end;
-  WR.RtfTitle(format(sUnitN,[unitName]),TitleLevel,(TitleLevel>=0),aUnit.OutputFileName);
+  try
+  WR.RtfTitle(unitN,TitleLevel,(TitleLevel>0),aUnit.DisplayFileName);
   WR.AddRtfContent('{\i '+sPurpose+'}: '+aUnit.UnitDescription(false));
   WR.RtfPar;
   procnames := '';
   if withFields then
   for j := 0 to high(Project.ParseSAD.List) do
-  if CSVContains(Project.ParseSAD.List[j].Value['UnitsUsed'],aUnit.OutputFileName) then begin
-    WR.AddRtfContent('{\sb220\b %s:\b0\par}',[format(sQuotedInN,[aUnit.Name])]);
+  if CSVContains(Project.ParseSAD.List[j].Value['UnitsUsed'],aUnit.DisplayFileName) then begin
+    WRTitle(sQuotedInN,'');
     WR.RtfColsPercent([17,75,9],true,true,false,'\trhdr');
     WR.RtfRow(['\qc\b '+Project.ParseSAD.Owner.ItemName+' #',
-      '\ql '+sDescription,'\qc '+sPage+'\b0'],true);
+      '\ql '+sDescription,Project.PageTableHeader],true);
     WR.RtfColsPercent([17,75,9],true,true,false,'\trkeep');
     for i := j to high(Project.ParseSAD.List) do
     with Project.ParseSAD.List[i] do
-      if CSVContains(Value['UnitsUsed'],aUnit.OutputFileName) then begin
-       WR.RtfRow(['\qc '+WR.RtfGoodSized(SectionNameValue),
-        '\ql '+TrimLastPeriod(Owner.ShortDescription('')),
-        '\qc '+WR.RtfPageRefToString(SectionNameValue,true,false)]);
+      if CSVContains(Value['UnitsUsed'],aUnit.DisplayFileName) then begin
+        if tmpWR=nil then
+          WR.RtfRow(['\qc '+WR.RtfGoodSized(SectionNameValue),
+           '\ql '+TrimLastPeriod(Owner.ShortDescription('')),
+           '\qc '+WR.RtfPageRefToString(SectionNameValue,true,false)]) else
+          WR.RtfRow([WR.RtfLinkToString(mainWRFileName+SectionNameValue,SectionNameValue),
+           TrimLastPeriod(Owner.ShortDescription('')),'']);
         CSVAddOnceCSV(procnames,Value[aUnit.Name+'.pas']);
       end;
     WR.RtfColsEnd;
@@ -1665,23 +1726,26 @@ begin
     p := Units.FindName(aUnit.UsesUnits[i]);
     if (p=nil) or (p.ClassType<>TPasUnit) then continue;
     if not ok then begin
-      WR.AddRtfContent('{\sb220\b ').
-        AddRtfContent(sUnitsUsedInN,[aUnit.Name]).
-        AddRtfContent(':\b0\par}');
+      WRTitle(sUnitsUsedInN,sUnitsUsed);
       WR.RtfFont(92);
       WR.RtfColsPercent([26,66,8],false,true,true,'\trhdr');
-      WR.RtfRow(['\b\ql '+sUnitName,sDescription,'\qc '+sPage+'\b0'],true);
+      WR.RtfRow(['\b\ql '+sUnitName,sDescription,Project.PageTableHeader],true);
       WR.RtfColsPercent([26,66,8],false,true,true,'\trkeep');
       ok := true;
     end;
-    WR.RtfRow(['\ql{\i '+p.Name+'}',TPasUnit(p).UnitDescription(false),
-        '\qc '+WR.RtfPageRefToString(TPasUnit(p).OutputFileName,true,false)]);
+    with TPasUnit(p) do
+    if tmpWR=nil then
+      WR.RtfRow(['\ql{\i '+Name+'}',UnitDescription(false),
+        '\qc '+WR.RtfPageRefToString(DisplayFileName,true,false)]) else
+      WR.RtfRow([WR.RtfLinkToString(Name+'.html#',Name),UnitDescription(false),'']);
   end;
   if ok then
     WR.RtfColsEnd;
   WR.RtfFont(100);
 {$ifdef WITH_GRAPHVIZ}
-  AddGraph(GraphFileNameOk(ValAt(aUnit.OutputFileName,0,'.'),false),WR);
+  if tmpWR<>nil then
+    WRTitle(sClassHierarchy,sHierarchy);
+  AddGraph(GraphFileNameOk(ValAt(aUnit.DisplayFileName,0,'.'),false),WR);
 {$endif}
   Details(aUnit.CIOs,'Objects',false,true,false,true); // need table for properties
   Details(aUnit.Types,'Types',false,false,false,false);
@@ -1689,10 +1753,21 @@ begin
   Details(aUnit.FuncsProcs,'Functions or procedures',false,true,false,true); // need table
   Details(aUnit.Variables,'Variables',false,true,false,false); // need table
   // Details(aUnit.Constants,'Resource Strings',false,true,true); pointless
+  if tmpWR<>nil then begin
+    SideBar.AddRtfContent(SIDEBAR_FOOTER);
+    i := WR.Len;
+    SideBar.SaveToWriter(WR);
+    WR.MovePortion(i,0,WR.Len-i);
+    WR.SaveToFile(fHtml,true);
+  end;
+  finally
+    SideBar.Free;
+    tmpWR.Free;
+  end;
 end;
 
-procedure TProjectBrowser.RtfUsesUnits(WR: TProjectWriter);
-var item,dir,desc: string;
+procedure TProjectBrowser.RtfUsesUnits(WR: TProjectWriter; const ExternalPath: string);
+var item,dir,ident,desc: string;
     u: integer;
 procedure EndDir;
 begin
@@ -1709,7 +1784,7 @@ begin
   for u := 0 to Units.Count-1 do
   with TPasUnit(Units[u]) do
   if isUnit then begin
-    item := ExtractFilePath(OutputFileName);
+    item := ExtractFilePath(DisplayFileName);
     if item<>dir then begin
       EndDir;
       dir := item;
@@ -1717,32 +1792,36 @@ begin
         AddRtfContent(sUnitsLocatedInN,[RtfBackSlash(dir)]).
         AddRtfContent(':\b0\par'#13);
       WR.RtfColsPercent([31,60,9],false,true,true,'\trhdr');
-      WR.RtfRow(['\b\ql '+sSourceFileName,sDescription,'\qc '+sPage+'\b0'],true);
+      WR.RtfRow(['\b\ql '+sSourceFileName,sDescription,Project.PageTableHeader],true);
       WR.RtfColsPercent([31,60,9],false,true,true,'\trkeep');
     end;
     desc := UnitDescription(true);
-    Project.ParseSAD.Params[OutputFileName] := desc; // write description in [SAD].EIA\Name.pas=...
-    WR.RtfRow(['\ql{\i '+Name+'}',desc,
-      '\qc '+WR.RtfPageRefToString(OutputFileName,true,false)]);
+    ident := '\ql{\i '+Name+'}';
+    Project.ParseSAD.Params[DisplayFileName] := desc; // write description in [SAD].EIA\Name.pas=...
+    if WR.HandlePages then
+      WR.RtfRow([ident,desc,'\qc '+WR.RtfPageRefToString(DisplayFileName,true,false)]) else
+      if ExternalPath='' then
+        WR.RtfRow([WR.RtfLinkToString(DisplayFileName,ident,false),desc,'']) else
+        WR.RtfRow([WR.RtfLinkToString(ExternalPath+'/'+Name+'.html#',ident,true),desc,'']);
   end;
   EndDir;
 end;
 
 procedure TProjectBrowser.RtfUsesUnitsDescription(WR: TProjectWriter; TitleLevel: integer;
-  const CSVUnitsWithFields: string; OnFooter: TProjectFooter);
+  const CSVUnitsWithFields,ExternalPath,ExternalTitle: string; OnFooter: TProjectFooter);
 var u: integer;
     aUnit: TPasUnit;
     withFields: boolean;
 begin
   for u := 0 to Units.Count-1 do begin
     aUnit := TPasUnit(Units[u]);
-    if not aUnit.isUnit or (UnitsDescription.IndexOf(aUnit.OutputFileName)>=0) then
+    if not aUnit.isUnit or (UnitsDescription.IndexOf(aUnit.DisplayFileName)>=0) then
       continue;
-    UnitsDescription.Add(aUnit.OutputFileName);
+    UnitsDescription.Add(aUnit.DisplayFileName);
     if CSVUnitsWithFields='*' then
       withFields := true else
-      withFields := CSVContains(CSVUnitsWithFields,aUnit.OutputFileName);
-    RtfUnitDescription(aUnit,WR,TitleLevel,withFields,OnFooter);
+      withFields := CSVContains(CSVUnitsWithFields,aUnit.DisplayFileName);
+    RtfUnitDescription(aUnit,WR,TitleLevel,withFields,ExternalPath,ExternalTitle,OnFooter);
   end;
 end;
 

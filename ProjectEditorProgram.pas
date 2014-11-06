@@ -62,7 +62,7 @@ type
     procedure lstObjectsClick(Sender: TObject);
     procedure lstObjectsDblClick(Sender: TObject);
     procedure SaeDescrExit(Sender: TObject);
-    function GetSaeStorage(const OutputFileName: string): TSectionsStorage;
+    function GetSaeStorage(const DisplayFileName: string): TSectionsStorage;
   public
   end;
 
@@ -220,7 +220,7 @@ begin
             ButtonContent := '!'+lstValues.Items.CommaText else
             ButtonContent := '';
           ButtonContent := ButtonContent+'!'+
-            TPasUnit(cbUnitName.Items.Objects[i]).OutputFileName;
+            TPasUnit(cbUnitName.Items.Objects[i]).DisplayFileName;
           result := true; // mack ButtonContent was updated/saved
         end;
       end;
@@ -439,15 +439,15 @@ begin
   end;
 end;
 
-function TProjectEditorProgramForm.GetSaeStorage(const OutputFileName: string): TSectionsStorage;
+function TProjectEditorProgramForm.GetSaeStorage(const DisplayFileName: string): TSectionsStorage;
 var i: Integer;
 begin
   if saeStorage=nil then
     result := nil else begin
-    i := saeStorage.IndexOf(OutputFileName);
+    i := saeStorage.IndexOf(DisplayFileName);
     if i<0 then begin
       result := TSectionsStorage.Create;
-      saeStorage.AddObject(OutputFileName,result);
+      saeStorage.AddObject(DisplayFileName,result);
     end else
       result := TSectionsStorage(saeStorage.Objects[i]);
   end;
@@ -468,7 +468,7 @@ begin
     if RawDescription<>txt then begin
       RawDescription := txt;
       saeStore := GetSaeStorage(
-        TPasUnit(cbUnitName.Items.Objects[cbUnitName.ItemIndex]).OutputFileName);
+        TPasUnit(cbUnitName.Items.Objects[cbUnitName.ItemIndex]).DisplayFileName);
       if saeStore=nil then
         exit;
       if pagTypes.ActivePageIndex=0 then begin // 'Objects' is first page
@@ -492,7 +492,7 @@ begin
   with TPasUnit(cbUnitName.Items.Objects[cbUnitName.ItemIndex]) do
     if RawDescription<>txt then begin
       RawDescription := txt;
-      GetSaeStorage(OutputFileName).WriteHeader('Description',txt);
+      GetSaeStorage(DisplayFileName).WriteHeader('Description',txt);
       btnOk.Enabled := true;
     end;
 end;

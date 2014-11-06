@@ -879,7 +879,7 @@ type
     FInterfaceUsesUnits,
     FUsesUnits: TStringVector;
     FSourceFilename: string;
-    FOutputFileName: string;
+    FDisplayFileName: string;
     FCacheAge: integer;
     FSourceFileAge: integer;
     FIsUnit: boolean;
@@ -924,7 +924,7 @@ type
 
     { name of documentation output file
       THIS SHOULD NOT BE HERE! }
-    property OutputFileName: string read FOutputFileName write FOutputFileName;
+    property DisplayFileName: string read FDisplayFileName write FDisplayFileName;
 
     function UnitDescription(OnlyFirstLine: boolean): string;
     

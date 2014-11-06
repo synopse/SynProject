@@ -249,6 +249,7 @@ type
     WRClass: TProjectWriterClass;
     WR: TProjectWriter;
     CreatedDocuments: string; // comma separated list of .doc/.rtf filenames
+    PageTableHeader: string;
     DestroyOpensCreatedDocuments: boolean; // if true -> Destroy will launch docs
   private
     Header: record
@@ -269,8 +270,8 @@ type
     ForcedOnlySection: TSection; // for CreateRTFDetails() -> ignore all other
     TitleBookmark: TStringList;
     fGraphValues: TSection;
-    PageTableHeader: string;
     SideBar: TProjectWriter;
+    ApiFolder: string;
     // cross-references:
     ReferencePictures, // Picture Caption=Bookmark0,Bookmark1...
     ReferenceIndex,    // KeyWord 1=bookmark0,bookmark1...
@@ -335,7 +336,7 @@ type
     procedure NeedGraphValues;
     function PercFromTitle(var GraphTitle: string; const UniqueImageName: string): integer;
     function PictureFullLine(const Line: string; out Caption: string;
-      aGraphValues: TSection=nil): string;
+      aGraphValues: TSection=nil; doNotReference: Boolean=false): string;
     function PictureInlined(const ButtonPicture: string; Percent: integer;
       WriteBinary: boolean): AnsiString;
     class function GetProgramSection(const Button: string): string; // 'EIA\one.pas' -> 'SAD-EIA'
@@ -708,8 +709,7 @@ begin
   if WR.HandlePages then
     PageTableHeader := '\qc '+sPage+'\b0' else
     if WRClass=THTML then begin
-      SideBar.AddRtfContent(
-        #1'<div class="sidebar"><div class="sidebarwrapper">'#1).RtfText;
+      SideBar.AddRtfContent(SIDEBAR_HEADER).RtfText;
       P := pointer(Project['HtmlSideBar']);
       repeat
         Name := GetNextItem(P,'/');
@@ -761,6 +761,7 @@ begin
     Header.Rev := RevSection['Revision'] else
     Header.Rev := aRev;
   Header.RevDate := RevSection.RevisionDate;
+  ApiFolder := 'api-'+Header.Rev;
   HeaderAndFooter;
   // 1.3 Document Properties
   PreparedBy := ValAt(Doc.Params['PreparedBy'],0);
@@ -1528,14 +1529,17 @@ begin
           if SAD.Units.Count>0 then begin
             WR.RtfTitle(title+' '+sSourceCodeImplementation,ParseTitleOffset,
               true,'SIDE_'+title);
-            WR.RtfTitle(format(sUsedUnitsN,[title]),ParseTitleOffset+1);
+            if WR.HandlePages then
+              WR.RtfTitle(format(sUsedUnitsN,[title]),ParseTitleOffset+1);
             WR.AddRtfContent(sUsedUnitsTextN,[title]);
-            SAD.RtfUsesUnits(WR);
+            SAD.RtfUsesUnits(WR,ApiFolder);
             // write all units descriptions
             if isTrue(ParseSAD.Params['WithAllfields']) then
               par := '*' else
               par := ParseSAD.Params['UnitsUsed'];
-            SAD.RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,Footer);
+            if WR.HandlePages then
+              SAD.RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,'','',Footer) else
+              SAD.RtfUsesUnitsDescription(WR,0,par,ApiFolder,title,Footer)
           end;
         end;
       SAD.Free;
@@ -1785,8 +1789,13 @@ var j,k, DetailLevel: integer;
     aItemName, aItemTitle: string;
 procedure WriteDescRow;
 var aAbbrev,aPages: string;
+    i: integer;
 begin
-  aAbbrev := '\qc{\i '+ValAt(ExtractFileName(un),0,'.')+'}';
+  i := pos('/',un);
+  if i>0 then
+    aAbbrev := copy(un,i+1,100) else
+    aAbbrev := un;
+  aAbbrev := '\qc{\i '+ValAt(aAbbrev,0,'.')+'}';
   if WR.HandlePages then
     aPages := '\qc '+WR.RtfPageRefToString(un,true) else
     aAbbrev := WR.RtfLinkToString(un,aAbbrev);
@@ -1893,7 +1902,7 @@ begin
           WR.RtfColsPercent([26,66,8],true,true,true,'\trkeep');
           U := pointer(ident);
           while U<>nil do begin
-            un := GetNextItem(U); // = TPasUnit(p).OutputFileName
+            un := GetNextItem(U); // = TPasUnit(p).DisplayFileName
             desc := '\ql '+Doc.Params[un]; // description is [SAD].EIA\Name.pas=..
             // unit.pasexact=.. TClass.Funct only (not TClass)
             P := pointer(Current[ExtractFileName(un)+'exact']);
@@ -1911,6 +1920,8 @@ begin
               until false;
               desc := desc+'}.';
             end;
+            if not WR.HandlePages then
+              un := ApiFolder+'/'+ValAt(ExtractFileName(un),0,'.')+'.html#';
             WriteDescRow;
           end;
           WR.RtfColsEnd.RtfFont(100);
@@ -1924,7 +1935,7 @@ begin
           WR.RtfColsPercent([26,66,8],true,true,true,'\trkeep');
           U := pointer(quoted);
           while U<>nil do begin
-            un := GetNextItem(U); // = TPasUnit(p).OutputFileName
+            un := GetNextItem(U); // = TPasUnit(p).DisplayFileName
             if CSVContains(ident,un) then
               continue; // already written
             desc := '\ql '+Doc.Params[un];
@@ -2673,9 +2684,7 @@ begin
     WR.MovePortion(tmpPos,ReferenceTablesPos,WR.Len-tmpPos);
   end;
   if WRClass=THTML then begin
-    SideBar.AddRtfContent(#1#13#10'</div></div>'#13#10+
-      '<div class="document"><div class="documentwrapper">'+
-      '<div class="bodywrapper"><div class="body">'#13#10#1);
+    SideBar.AddRtfContent(SIDEBAR_FOOTER);
     tmpPos := WR.Len;
     SideBar.SaveToWriter(WR);
     WR.MovePortion(tmpPos,0,WR.Len-tmpPos);
@@ -2717,7 +2726,7 @@ begin
 end;
 
 function TProject.PictureFullLine(const Line: string; out Caption: string;
-  aGraphValues: TSection): string;
+  aGraphValues: TSection; doNotReference: Boolean): string;
 // SDD-DI-4.1-Menu3.emf=4574x6521 95%,Service software: LaunchAction, Internal Spawn
 var BookMark, Coords: string;
 begin
@@ -2729,12 +2738,14 @@ begin
       delete(result,1,1);
     caption := PictureCaption(result,@Coords,aGraphValues);
     if caption<>'' then begin
-      if ReferencePictures[result]='' then
-        BookMark := RtfBookMarkName(result) else begin
-        inc(ReferencePicturesIndex);
-        BookMark := 'PICTURE_'+IntToStr(ReferencePicturesIndex);
+      if not doNotReference then begin
+        if ReferencePictures[result]='' then
+          BookMark := RtfBookMarkName(result) else begin
+          inc(ReferencePicturesIndex);
+          BookMark := 'PICTURE_'+IntToStr(ReferencePicturesIndex);
+        end;
+        ReferencePictures.AddCSVValue(result,BookMark);
       end;
-      ReferencePictures.AddCSVValue(result,BookMark);
       caption := WR.RtfBookMarkString('\line'+WR.RtfFontString(88)+'\i '+caption,
         BookMark,true);
     end;
@@ -2929,9 +2940,9 @@ begin
         SAD.FillUnits(Parse[i],false); // false = no recreate GraphViz emf
         for j := 0 to SAD.Units.Count-1 do
           with TPasUnit(SAD.Units[j]) do
-          if U.IndexOf(OutputFileName)<0 then begin
+          if U.IndexOf(DisplayFileName)<0 then begin
             D := TStringList.Create;
-            D.Add('OutputFileName='+OutputFileName);
+            D.Add('DisplayFileName='+DisplayFileName);
             D.Add('Description='+
               StringReplaceAll(trim(RawDescriptionInfo.Content),#13#10,'|'));
             AddItems(Types,'Types');
@@ -2948,7 +2959,7 @@ begin
                 AddItems(Methods,'');
                 AddItems(Properties,'');
               end;
-            U.AddObject(OutputFileName,D);
+            U.AddObject(DisplayFileName,D);
           end;
       end;
     SAD.CloseCacheSAE(true,false); // we will overwrite now the .sae file
