@@ -167,6 +167,7 @@ type
     function OnClipboardPaste(Sender: TObject): boolean;
     function InsertPicture(Pic: TPicture; const Title, PicFileName: string): boolean;
     procedure AllTitles;
+    procedure NumberedTitles;
     function ShowSelectionForm(OnlyNumberedTitles: boolean): TSelectionForm;
     function FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
   public
@@ -612,6 +613,19 @@ begin
   end;
 end;
 
+procedure TFrameEditor.NumberedTitles;
+var i: integer;
+begin
+  with ShowSelectionForm(true) do
+  try
+    i := TitleToNumber(Selected);
+    if i>0 then
+      Memo.InsertTextAtCurrentPos('@'+IntToStr(i)+'@');
+  finally
+    Free;
+  end;
+end;
+
 function TFrameEditor.ShowSelectionForm(OnlyNumberedTitles: boolean): TSelectionForm;
 var i,Para,ParaIndex: integer;
     Value: string;
@@ -1013,14 +1027,15 @@ begin
     end;
     Str.Free;
     if Sender=Sections then
-      Kind := 20 else // MenuItem.Tag=20 -> "All titles" jump window
-      Kind := 23; // MenuItem.Tag=22 -> "All numbered titles" link window
+      Kind := 20 else  // MenuItem.Tag=20 -> "All titles" jump window
+      Kind := 23;      // MenuItem.Tag=23 -> "All numbered titles" link window
     Menu := NewMenu(sTitlesAll,'',PopupMenuLink);
     Menu.ImageIndex := BtnTextAll.ImageIndex;
     if Sender=Sections then begin
       Menu.ShortCut := VK_F10;
       exit; // no auto popup from Sections TListbox
-    end;
+    end else
+      Menu.ShortCut := VK_F10+scAlt;
   end else
 
   // People -> menu
@@ -1288,16 +1303,8 @@ begin
     Memo.InsertTextAtCurrentPos('@'+Value+'@');
   20: 
     AllTitles;
-  23: begin
-    with ShowSelectionForm(true) do
-    try
-      i := TitleToNumber(Selected);
-      if i>0 then
-        Memo.InsertTextAtCurrentPos('@'+IntToStr(i)+'@');
-    finally
-      Free;
-    end;
-  end;
+  23:
+    NumberedTitles;
   else
     if Menu.Tag>10000 then begin
       // ':1 Title' -> jump from Tag=10000+paraIndex
@@ -1366,8 +1373,9 @@ begin
   end else
   if ssAlt in Shift then // Alt Key
   case Key of
-  VK_LEFT:  BtnHistoryBackClick(nil);              // Alt + Left = history back
-  VK_RIGHT: BtnHistoryNextClick(nil);              // Alt + Right = history next
+  VK_LEFT:  BtnHistoryBackClick(nil);     // Alt + Left = history back
+  VK_RIGHT: BtnHistoryNextClick(nil);     // Alt + Right = history next
+  VK_F10:   AllTitles;                    // Alt + F10 = browse document titles
   end else
   if ssCtrl in Shift then // Ctrl Key
   case Key of             // Ctrl + 0,B,I,U = Fixed,Bold,Italic,Underline font
