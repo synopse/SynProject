@@ -180,7 +180,6 @@ resourcestring
 
 {$ifdef WITH_GRAPHVIZ}
 procedure TProjectBrowser.AddGraph(graph: string; WR: TProjectWriter);
-var img,caption: string;
 begin
   LoadGraphValues;
   graph := GraphDirName+graph;
@@ -191,11 +190,8 @@ begin
   if FileExists(Project.FileNameDir+graph+'.png') then
     graph := graph+'.png' else
     graph := graph+'.gif';
-  if FileExists(Project.FileNameDir+graph) then begin
-    WR.RtfFont(50);
-    img := Project.PictureFullLine(graph,caption,nil,WR<>Project.WR);
-    WR.RtfImage(img,caption).RtfFont(100);
-  end;
+  if FileExists(Project.FileNameDir+graph) then
+    Project.PictureAdd(graph,nil,WR);
 end;
 {$endif}
 

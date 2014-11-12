@@ -333,11 +333,12 @@ type
 {$ifdef WITH_GRAPHVIZ}
     procedure UpdateSADGraphViz(const Ext: string; OnlyGraphs: boolean);
 {$endif}
-    procedure ExportAsHtml;
     procedure NeedGraphValues;
     function PercFromTitle(var GraphTitle: string; const UniqueImageName: string): integer;
-    function PictureFullLine(const Line: string; out Caption: string;
+    function PictureFullLine(const Line: string; out Caption,Bookmark: string;
       aGraphValues: TSection=nil; doNotReference: Boolean=false): string;
+    procedure PictureAdd(const Line: string; aGraphValues: TSection=nil;
+      aWR: TProjectWriter=nil);
     function PictureInlined(const ButtonPicture: string; Percent: integer;
       WriteBinary: boolean): AnsiString;
     class function GetProgramSection(const Button: string): string; // 'EIA\one.pas' -> 'SAD-EIA'
@@ -1066,10 +1067,9 @@ begin
       if line[2]='%' then begin // '%%FirmwareBoot' for \graph FirmwareBoot ...
         NeedGraphValues;
         delete(line,1,2);
-        WR.RtfFont(50).RtfImage(PictureFullLine(
-          GraphDirName+line,caption,fGraphValues),caption).RtfFont(100);
+        PictureAdd(GraphDirName+line,fGraphValues);
       end else
-        WR.RtfFont(50).RtfImage(PictureFullLine(line,caption),caption).RtfFont(100);
+        PictureAdd(line);
     end;
     '|': begin
       line := ExpandDocumentNames(line);
@@ -1086,8 +1086,7 @@ begin
       PC := @line[7]; while PC^=' ' do inc(PC);
       UniqueImageName := GetNextItemTrimed(PC,' ');
       if UniqueImageName<>'' then
-        WR.RtfFont(50).RtfImage(PictureFullLine(
-          GraphDirName+UniqueImageName,caption,fGraphValues),caption).RtfFont(100);
+        PictureAdd(GraphDirName+UniqueImageName,fGraphValues);
       while not Data.ReadEof do begin
         line := Data.ReadLine;
         if (line='') or (line='\') then break; // ignore \graph content
@@ -2784,10 +2783,10 @@ begin
     result := '';
 end;
 
-function TProject.PictureFullLine(const Line: string; out Caption: string;
+function TProject.PictureFullLine(const Line: string; out Caption,Bookmark: string;
   aGraphValues: TSection; doNotReference: Boolean): string;
 // SDD-DI-4.1-Menu3.emf=4574x6521 95%,Service software: LaunchAction, Internal Spawn
-var BookMark, Coords: string;
+var Coords: string;
 begin
   result := Line; // result=FileName
   caption := '';
@@ -2805,8 +2804,7 @@ begin
         end;
         ReferencePictures.AddCSVValue(result,BookMark);
       end;
-      caption := WR.RtfBookMarkString('\line'+WR.RtfFontString(88)+'\i '+caption,
-        BookMark,true);
+      caption := '\line'+WR.RtfFontString(88)+'\i '+caption;
     end;
     result := result+' '+Coords; // 796x729 100%
   end;
@@ -2817,7 +2815,7 @@ function TProject.PictureInlined(const ButtonPicture: string; Percent: integer;
   WriteBinary: boolean): AnsiString;
 var P: PChar;
     Code: integer;
-    Image, caption, Coords: string;
+    Image, caption, bookmark, Coords: string;
 begin // '30%bidule.png' or '30%%FirmwareBoot' -> inlined picture
   result := '';
   P := pointer(ButtonPicture);
@@ -2829,9 +2827,10 @@ begin // '30%bidule.png' or '30%%FirmwareBoot' -> inlined picture
       // '%FirmwareBoot' for \graph FirmwareBoot ...
       inc(P);
       NeedGraphValues;
-      Image := PictureFullLine(GraphDirName+P,caption,fGraphValues);
+      Image := PictureFullLine(GraphDirName+P,caption,bookmark,fGraphValues);
     end else
-      Image := PictureFullLine(P,caption);
+      Image := PictureFullLine(P,caption,bookmark);
+    WR.RtfBookMark('',bookmark,true);
   end else begin
     Percent := 0;
     Image := ButtonPicture;
@@ -3562,9 +3561,17 @@ begin
   end;
 end;
 
-procedure TProject.ExportAsHtml;
+procedure TProject.PictureAdd(const Line: string; aGraphValues: TSection;
+  aWR: TProjectWriter);
+var pic,caption,bookmark: string;
 begin
-
+  if aWR=nil then
+    aWR := WR;
+  aWR.RtfFont(50);
+  pic := PictureFullLine(Line,caption,bookmark,aGraphValues,aWR<>WR);
+  aWR.RtfBookMark('',bookmark,true);
+  aWR.RtfImage(pic,caption);
+  aWR.RtfFont(100);
 end;
 
 

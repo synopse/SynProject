@@ -1291,8 +1291,6 @@ begin
         //  Destroy will launch doc
         Project.DestroyOpensCreatedDocuments := true;
       end;
-      21:
-        Project.ExportAsHtml;
       end;
     finally
       Screen.Cursor := crDefault;
