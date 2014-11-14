@@ -319,7 +319,7 @@ begin
     s := TableName(Node.Name);
     EditName.Text := 'DB'+s;
     EditTitle.Text := s+' Record Layout';
-    s := 'rankdir=LR;'#13#10'node [shape=Mrecord];'#13#10'struct1 [label="ID : integer';
+    s := 'rankdir=LR;'#13#10'node [shape=Mrecord];'#13#10'struct1 [label="ID : TID';
     f := 0;
     repeat
       Item := Node.Item;
