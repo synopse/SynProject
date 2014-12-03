@@ -3295,7 +3295,11 @@ begin
         SetCurrent(W);
         W^.Add(HTML_TAGS[false,hGT]);
       end;
-      '\': begin
+      '\':
+      if P[1]  in RTFEndToken then begin
+        inc(P);
+        W^.Add(P^);
+      end else begin
         B := P;
         repeat inc(B) until B^ in RTFEndToken;
         L := B-P-1;
