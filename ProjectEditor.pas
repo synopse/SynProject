@@ -2088,7 +2088,8 @@ begin
             inc(P); // ignore @*keyword@
             if P^='*' then inc(P);
           end else
-          if IdemPChar(P,'HTTP:') then begin
+          if IdemPChar(P,'HTTP') and
+             ((P[4]=':') or ((P[4]='s')and(P[5]=':'))) then begin
             B := P;
             repeat inc(P) until (P^<=' ') or (P^ in [')',',',';']);
             SetString(token,B,P-B);

@@ -723,7 +723,8 @@ begin
         if (Name='') or (Value='') then
           break;
         Name := '{\b '+Name+'}';
-        if IdemPChar(Pointer(Value),'HTTP://') then
+        if IdemPChar(Pointer(Value),'HTTP') and
+           ((Value[5]=':') or ((Value[5]='s')and(Value[6]=':'))) then
           SideBar.AddRtfContent(SideBar.RtfHyperlinkString(Value,Name)) else
           SideBar.RtfLinkTo(Value,Name);
         SideBar.AddRtfContent(#1'<br><small>'#1+Purpose+#1'</small>'#1).RtfPar;
@@ -2109,8 +2110,10 @@ begin
   repeat
     i := Pos('@http://',text);
     if i=0 then
+      i := Pos('@https://',text);
+    if i=0 then
       break;
-    for j := i to length(text)+1 do
+    for j := i+6 to length(text)+1 do
       if text[j]<=' ' then begin
         HTTP := copy(text,i+1,j-i-1);
         delete(text,i,j-i);
