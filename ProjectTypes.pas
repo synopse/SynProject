@@ -608,21 +608,30 @@ begin
   end;
   end; // if DI<>nil 
   // 6. Project DestinationDir init as default directory
+  FileName := Data.FileName; // 'D:\Dev\Synopse\Documents\Product New Version\Product New Version.pro'
+  FileNameDir := ExtractFilePath(FileName);  // 'D:\Dev\Synopse\Documents\Product New Version\'
   DestinationDir := Project['DestinationDir'];
-  if DestinationDir<>'' then begin // <>'' -> DestinationDir\Name
+  if DestinationDir='' then
+    DestinationDir := GetCurrentDir else begin
+    if DestinationDir='.' then
+      DestinationDir := FileNameDir else
+    if DestinationDir='.exe' then
+      DestinationDir := ExtractFilePath(paramstr(0)) else
+    if DestinationDir='.docs' then
+      DestinationDir := GetMyDocuments else
+    if DestinationDir='.data' then
+      DestinationDir := GetAppDataPath;
     if not DirectoryExists(DestinationDir) then begin
       CreateDir(DestinationDir);
       if not DirectoryExists(DestinationDir) then
         DestinationDir := GetMyDocuments;
     end;
-    DestinationDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(
-      DestinationDir)+Project['Name']);
-    if not DirectoryExists(DestinationDir) then // 'D:\Documents\Product New Version\'
-      if not CreateDir(DestinationDir) then 
-        DestinationDir := IncludeTrailingPathDelimiter(GetMyDocuments);
   end;
-  FileName := Data.FileName; // 'D:\Dev\Synopse\Documents\Product New Version\Product New Version.pro'
-  FileNameDir := ExtractFilePath(FileName);  // 'D:\Dev\Synopse\Documents\Product New Version\'
+  DestinationDir := IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(
+    DestinationDir)+Project['Name']);
+  if not DirectoryExists(DestinationDir) then // 'D:\Documents\Product New Version\'
+    if not CreateDir(DestinationDir) then
+      DestinationDir := IncludeTrailingPathDelimiter(GetMyDocuments);
 end;
 
 destructor TProject.Destroy;
