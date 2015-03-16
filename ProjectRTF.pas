@@ -192,7 +192,7 @@ type
     procedure RtfList(line: string); virtual; abstract;
     function RtfLine: TProjectWriter; virtual; abstract;
     procedure RtfPage; virtual; abstract;
-    function RtfPar: TProjectWriter; virtual; abstract;
+    function RtfPar(withBottomLineSeparator: boolean=false): TProjectWriter; virtual; abstract;
     function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
       const Caption: string; WriteBinary: boolean; perc: integer): string; virtual; abstract;
     function RtfImage(const Image: string; const Caption: string = '';
@@ -281,7 +281,7 @@ type
     procedure RtfList(line: string); override;
     procedure RtfPage; override;
     function RtfLine: TProjectWriter; override;
-    function RtfPar: TProjectWriter; override;
+    function RtfPar(withBottomLineSeparator: boolean=false): TProjectWriter; override;
     function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
       const Caption: string; WriteBinary: boolean; perc: integer): string; override;
     function RtfImage(const Image: string; const Caption: string = '';
@@ -323,16 +323,24 @@ type
 
   THtmlTag = (hBold, hItalic, hUnderline, hCode, hBR, hBRList, hNavy, hNavyItalic,
     hNbsp, hPre, hAHRef, hTable, hTD, hTR, hP, hTitle, hHighlight, hLT, hGT, hAMP,
-    hUL, hLI, hH, hTBody, hTHead, hTH);
+    hUL, hLI, hH, hTBody, hTHead, hTH, hHR);
   THtmlTags = set of THtmlTag;
   THtmlTagsSet = array[boolean,THtmlTag] of AnsiString;
+
+  THTML = class;
+
+  TOnBufferWrite = procedure(Sender: THTML; P: PAnsiChar; PLen: Integer;
+    PIsCode: boolean; W: PStringWriter) of object;
 
   THTML = class(TProjectWriter)
   protected
     Level: integer;
     Current: THtmlTags;
-    InTable, HasLT: boolean;
+    InTable, HasLT, TestWord: boolean;
     Stack: array[0..20] of THtmlTags; // stack to handle { }
+    fOnBufferWrite: TOnBufferWrite;
+    fOnBufferWriteForceCode: boolean;
+    Buffer: TStringWriter;
     fColsAreHeader: boolean;
     fColsMD: TIntegerDynArray;
     fContent,fAuthor,fTitle,fCompany: string;
@@ -343,6 +351,7 @@ type
     procedure WriteAsHtml(P: PAnsiChar; W: PStringWriter);
     function ContentAsHtml(const text: string): string;
     procedure SetCurrent(W: PStringWriter);
+    procedure BufferFlush(W: PStringWriter);
     procedure OnError(msg: string; const args: array of const);
   public
     constructor Create(const aLayout: TProjectLayout;
@@ -361,7 +370,7 @@ type
     procedure RtfList(line: string); override;
     procedure RtfPage; override;
     function RtfLine: TProjectWriter; override;
-    function RtfPar: TProjectWriter; override;
+    function RtfPar(withBottomLineSeparator: boolean=false): TProjectWriter; override;
     function RtfImageString(const Image: string; // 'SAD-4.1-functions.png 1101x738 85%'
       const Caption: string; WriteBinary: boolean; perc: integer): string; override;
     function RtfImage(const Image: string; const Caption: string = '';
@@ -393,6 +402,8 @@ type
     function RtfBig(const text: string): TProjectWriter; override;
     function RtfGoodSized(const Text: string): string; override;
     procedure SetInfo(const aTitle, aAuthor, aSubject, aManager, aCompany: string); override;
+    property OnBufferWrite: TOnBufferWrite read fOnBufferWrite write fOnBufferWrite;
+    property OnBufferWriteForceCode: boolean read fOnBufferWriteForceCode write fOnBufferWriteForceCode; 
   end;
 
   THeapMemoryStream = class(TMemoryStream)
@@ -486,10 +497,10 @@ const
     ('<b>','<i>','<u>','<code>','<br>','<li>','<font color="navy">','<font color="navy"><i>',
       '&nbsp;','<pre>','<a href="%s">','<table>','<td>','<tr>','<p>','<h3>',
       '<span style="background-color:yellow;">','&lt;','&gt;','&amp;','<ul>','<li>',
-      '<h%d>','<tbody><tr>','<thead><tr>','<th>'),
+      '<h%d>','<tbody><tr>','<thead><tr>','<th>','<hr>'),
     ('</b>','</i>','</u>','</code>','','','</font>','</i></font>',
       '','</pre>','</a>','</table>','</td>','</tr>','</p>','</h3>'#13#10,'</span>',
-      '','','','</ul>','</li>','</h%d>','</tr></tbody>','</tr></thead>','</th>'));
+      '','','','</ul>','</li>','</h%d>','</tr></tbody>','</tr></thead>','</th>',''));
 
   // format() parameters: [QuotedContent,QuotedAuthor,EscapedPageTitle]
   CONTENT_HEADER =
@@ -712,9 +723,11 @@ function TStringWriter.Add(c: char): PStringWriter;
 begin
   inc(len);
   result := @self;
-  if (pointer(fData)=nil) or (len>pInteger(cardinal(fData)-4)^) then
-//  if len>length(fData) then
+  if (pointer(fData)=nil) or (len>pInteger(cardinal(fData)-4)^) then begin
+    if fGrowby=0 then
+      fGrowby := 1024;
     SetLength(fData,length(fData)+fGrowBy);
+  end;
   fData[len] := c;
 end;
 
@@ -1770,7 +1783,7 @@ begin
   fLastWasRtfPage := true;
 end;
 
-function TRTF.RtfPar: TProjectWriter;
+function TRTF.RtfPar(withBottomLineSeparator: boolean=false): TProjectWriter;
 begin
   RtfText;
   WR.AddShort('\par'#13);
@@ -2112,6 +2125,10 @@ function RtfBookMarkName(const Name: string): string;
 // bookmark name compatible with rtf (AlphaNumeric+'_')
 var i: integer;
 begin
+  if Name='' then begin
+    result := '';
+    exit;
+  end;
   if Name=RtfBookMarkNameName then begin
     result := RtfBookMarkNameValue;
     exit;
@@ -2542,13 +2559,14 @@ constructor THTML.Create(const aLayout: TProjectLayout; aDefFontSizeInPts,
   aTitleFlat: boolean; const aF0, aF1: string; aMaxTitleOutlineLevel: integer);
 begin
   inherited;
-  { TODO : multi-page layout }
+  { TODO : multi-page layout ? }
 end;
 
 function THTML.Clone: TProjectWriter;
 begin
   result := inherited Clone;
   (result as THTML).SetInfo(fTitle,fAuthor,fContent,'',fCompany);
+  THTML(result).fOnBufferWrite := fOnBufferWrite;
 end;
 
 procedure THTML.SetInfo(const aTitle,aAuthor,aSubject,aManager,aCompany: string);
@@ -2732,7 +2750,6 @@ end;
 
 function THTML.RtfImageString(const Image, Caption: string;
   WriteBinary: boolean; perc: integer): string;
-// !!! TODO: produce SVG content instead of .emf binary
 var w,h, percent, Ext, i,j: integer;
     aFileName, alt, src,iWidth, iHeight: string;
 const EXTS: array[0..high(VALID_PICTURES_EXT)] of string = (
@@ -2886,10 +2903,11 @@ begin
   WR.Add(HTML_TAGS[true,hLI]);
 end;
 
-function THTML.RtfPar: TProjectWriter;
+function THTML.RtfPar(withBottomLineSeparator: boolean=false): TProjectWriter;
 begin
   SetLast(lastRtfNone);
-  RtfText;
+  if withBottomLineSeparator then
+    WR.Add(HTML_TAGS[false,hHR]);
   result := RtfText;
 end;
 
@@ -2897,8 +2915,7 @@ function THTML.RtfParDefault: TProjectWriter;
 begin
   Stack[Level] := [];
   SetCurrent(@WR);
-  RtfText;
-  result := self;
+  result := RtfText;
 end;
 
 procedure THTML.RtfKeywords(line: string; const KeyWords: array of string;
@@ -3030,7 +3047,9 @@ com:  SetToken;
             IsKeyWord(KeyWords,token)) or // .MOD keys are always uppercase
          ((@KeyWords<>@MODULA2KEYWORDS) and IsKeyWord(KeyWords,UpperCase(token))) then
         WR.Add(HTML_TAGS[false,hBold]).Add(token).Add(HTML_TAGS[true,hBold]) else
-        WR.Add(token);
+        if (@KeyWords=@PASCALKEYWORDS) and Assigned(fOnBufferWrite) then
+          fOnBufferWrite(self,pointer(token),length(token),true,@WR) else
+          WR.Add(token);
     if CString and (P^='"') and (P[1]<>'"') then begin
       repeat
         if P^='<' then HasLT := True else
@@ -3237,6 +3256,8 @@ procedure THTML.SetCurrent(W: PStringWriter);
 var Old, New: THtmlTags;
     Tag: THtmlTag;
 begin
+  if Buffer.len<>0 then
+    BufferFlush(W);
   New := Stack[Level];
   Old := Current;
   if New=Old then
@@ -3249,6 +3270,17 @@ begin
   Current := New;
 end;
 
+procedure THTML.BufferFlush(W: PStringWriter);
+begin
+  with Buffer do
+  if len<>0 then begin
+    if Assigned(fOnBufferWrite) then
+      fOnBufferWrite(self,pointer(fData),len,hCode in Current,W) else
+      W^.Add(pointer(fData),len);
+    len := 0;
+  end;
+end;
+
 procedure THTML.WriteAsHtml(P: PAnsiChar; W: PStringWriter);
 var B: PAnsiChar;
     L: integer;
@@ -3258,18 +3290,23 @@ begin
     exit;
   if W=nil then
     W := @WR;
+  Buffer.len := 0;
   while P^<>#0 do begin
     case P^ of
       #1: begin
         SetCurrent(W);
+        inc(P);
+        B := P;
         repeat // #1...#1 is written directly with no conversion
-          inc(P);
           case P^ of
-          #0: exit;
+          #0: exit; // invalid input
           #1: break;
           end;
-          W^.Add(P^);
-        until false;          
+          inc(P);
+        until false;
+        if Assigned(fOnBufferWrite) then
+          fOnBufferWrite(self,B,P-B,hCode in Current,W) else
+          W^.Add(B,P-B);
       end;
       #10,#13: ; // just ignore control chars
       '{': begin
@@ -3284,21 +3321,24 @@ begin
       end;
       '}': if Level>0 then dec(Level);
       '&': begin
-        SetCurrent(W);
-        W^.Add(HTML_TAGS[false,hAMP]);
+        if Stack[Level]<>Current then
+          SetCurrent(W);
+        Buffer.Add(HTML_TAGS[false,hAMP]);
       end;
       '<': begin
-        SetCurrent(W);
-        W^.Add(HTML_TAGS[false,hLT]);
+        if Stack[Level]<>Current then
+          SetCurrent(W);
+        Buffer.Add(HTML_TAGS[false,hLT]);
       end;
       '>': begin
-        SetCurrent(W);
-        W^.Add(HTML_TAGS[false,hGT]);
+        if Stack[Level]<>Current then
+          SetCurrent(W);
+        Buffer.Add(HTML_TAGS[false,hGT]);
       end;
       '\':
-      if P[1]  in RTFEndToken then begin
+      if P[1] in RTFEndToken then begin
         inc(P);
-        W^.Add(P^);
+        Buffer.Add(P^);
       end else begin
         B := P;
         repeat inc(B) until B^ in RTFEndToken;
@@ -3325,7 +3365,7 @@ begin
             if token='f0' then
               exclude(Stack[Level],hCode) else
             if token='line' then
-              W^.Add(HTML_TAGS[false,hBR]) else
+              Buffer.Add(HTML_TAGS[false,hBR]) else
             if token='pard' then
               Stack[Level] := [] else
             if token='par' then begin // should not occur normaly
@@ -3333,7 +3373,7 @@ begin
               W^.Add(HTML_TAGS[false,hP]);
             end else
             if token='tab' then
-              W^.Add('&nbsp;') else
+              Buffer.Add('&nbsp;') else
             if (token<>'qc') and (token<>'ql') and (token<>'qr') and
                (token<>'qj') and (token<>'shad') and 
                (PWord(token)^<>ord('c')+ord('f')shl 8) and
@@ -3344,11 +3384,11 @@ begin
                (PWord(token)^<>ord('s')+ord('b')shl 8) then begin
               // ignore \qc\ql\qr\qj\cf#\fi#\li#\fs#\sa#\sb#
               OnError('Unknown token "%s"',[token]);
-              W^.Add('???').Add(Token);
+              Buffer.Add('???').Add(Token);
             end;
           end else
             if P[1]='\' then begin
-              W^.Add('\');
+              Buffer.Add('\');
               inc(P,2);
               continue;
             end;
@@ -3363,11 +3403,12 @@ begin
       else begin
         if Stack[Level]<>Current then
           SetCurrent(W);
-        W^.Add(P^);
+        Buffer.Add(P^);
       end;
     end;
     inc(P);
   end;
+  BufferFlush(W);
 end;
 
 

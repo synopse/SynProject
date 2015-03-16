@@ -71,7 +71,6 @@ type
 {$endif}
     procedure LogMessage(const MessageType: TMessageType;
       const AMessage: string; const AVerbosity: Cardinal);
-    function FindGlobal(const NameParts: TNameParts): TBaseItem;
   public
     // list of already written units filenames
     UnitsDescription: TStringList;
@@ -110,6 +109,8 @@ type
     // write all used unit detailled description if not already done
     procedure RtfUsesUnitsDescription(WR: TProjectWriter; TitleLevel: integer;
       const CSVUnitsWithFields,ExternalPath,ExternalTitle: string; OnFooter: TProjectFooter);
+    // search for a symbol name inside all units
+    function FindGlobal(const NameParts: TNameParts): TBaseItem;
     // the associated project
     property Project: TProject read FProject;
     // the current class hierarchy
@@ -452,7 +453,7 @@ begin // Section = [SAD-EIA] e.g.
     end;
     // update cache file
     ZipCacheUpdate;
-    Units.SortByDirectory;
+    Units.SortShallow; // sort by name, not by directory
     Units.SortOnlyInsideItems([
       ssConstants, ssFuncsProcs, ssTypes, ssVariables, ssUsesClauses,
       ssRecordFields, ssNonRecordFields, ssMethods, ssProperties]);
@@ -474,27 +475,27 @@ begin
   Result := nil;
   if (Units=nil) or (Units.Count=0) then Exit;
   case Length(NameParts) of
-    1: { field_method_property }
+    1: { field/method/property } begin
+        Result := TPasUnit(Units.FindName(NameParts[0]));
+        if Result<>nil then
+          exit;
         for i := 0 to Units.Count - 1 do begin
-           U := TPasUnit(Units[i]);
-           if SameText(U.Name, NameParts[0]) then begin
-             Result := U;
-             Exit;
-           end;
-           Result := U.FindItem(NameParts[0]);
+           Result := TPasUnit(Units.List[i]).FindItem(NameParts[0]);
            if Result <> nil then Exit;
          end;
-    2: begin  { object.field_method_property }
+        end;
+    2: begin  { object.field/method/property }
          for i := 0 to Units.Count - 1 do begin
-           Result := TPasUnit(Units[i]).FindFieldMethodProperty(NameParts[0], NameParts[1]);
+           Result := TPasUnit(Units.List[i]).FindFieldMethodProperty(
+             NameParts[0], NameParts[1]);
            if Assigned(Result) then Exit;
          end;
-         { unit.cio_var_const_type }
+         { unit.cio/var/const/type }
          U := TPasUnit(Units.FindName(NameParts[0]));
          if Assigned(U) then
            Result := U.FindItem(NameParts[1]);
        end;
-    3: begin  { unit.objectorclassorinterface.fieldormethodorproperty }
+    3: begin  { unit.object/class/interface.field/method/property }
          U := TPasUnit(Units.FindName(NameParts[0]));
          if (not Assigned(U)) then Exit;
          Item := U.FindItem(NameParts[1]);
@@ -1455,10 +1456,6 @@ begin
   if (Fields=nil) or (Fields.Count=0) then exit;
   for f := 0 to Fields.Count-1 do begin
     m := TPasItem(Fields[f]);
-    if m.MyObject=nil then
-      m.MyObject := TPasCio(p);
-    if m.MyUnit=nil then
-      m.MyUnit := aUnit;
     fullName := m.MyObject.Name+'.'+m.Name;
     highlight := CSVContains(procnames,fullName);
     if not highlight and not withVoid and (m.RawDescriptionInfo.Content='') then
@@ -1496,7 +1493,7 @@ begin
       MessageBox(0,pointer(line.Data),pointer(aUnit.Name),0); }
     if insideTable and WR.HandlePages then
       WR.RtfRow([line.Data]) else begin
-      line.RtfPar;
+      line.RtfPar(true);
       line.SaveToWriter(WR);
     end;
   end;
@@ -1528,13 +1525,13 @@ begin
   if (Items=nil) or (Items.Count=0) then exit;
   ok := false;
   line := WR.Clone;
+  if line.InheritsFrom(THTML) then
+    THTML(line).OnBufferWriteForceCode := true;
   SetLength(OKs,Items.Count);
   SL := TStringList.Create;
   try
     for i := 0 to Items.Count-1 do begin
       p := TPasItem(Items[i]);
-      if p.MyUnit=nil then
-        p.MyUnit := aUnit;
       highlight := CSVContains(procnames,p.Name);
       if not highlight and not withVoid and (p.RawDescriptionInfo.Content='') then
         continue;
@@ -1582,16 +1579,12 @@ begin
       with TPasEnum(p) do begin
         decl := Name+' = ';
         if Members.Count<>0 then begin
-          if Members.Count>5 then
-            decl := decl+'\line( ' else
-            decl := decl+'( ';
+          decl := decl+'( ';
           for j := 0 to Members.Count-1 do
           with TPasItem(Members[j]) do begin
             decl := decl+TPasItem(Members[j]).Name;
             if j<Members.Count-1 then
               decl := decl+', ';
-  {          if RawDescriptionInfo.Content<>'' then
-              decl := decl+' // '+RawDescriptionInfo.Content+'\line'; }
           end;
           decl := decl+' );'
         end else
@@ -1643,7 +1636,7 @@ begin
         WR.RtfBookMark('',PasItemBookmark(p),false);
       if insideTable and WR.HandlePages then
         WR.RtfRow([line.Data]) else
-        line.RtfPar.SaveToWriter(WR);
+        line.RtfPar(true).SaveToWriter(WR);
       if hasFields then begin
   //      WR.fCols := StringReplaceAll(WR.fCols,'\clbrdrl\brdrs',''); // reset border
         Field(TPasCio(p).Fields,'fields');

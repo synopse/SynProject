@@ -103,6 +103,7 @@ unit ProjectVersionMain;
   - link or jump to numbered menu will now be grouped by 20 (for readibility)  
   - Titles are now defined with the style expected by MSWord, so that e.g. the
     generated PDF would contain the document table of content as bookmarks
+  - SAD export as HTML files, including symbol recognition as hyperlinks
 
 *)
 

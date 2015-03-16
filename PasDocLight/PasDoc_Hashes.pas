@@ -181,13 +181,15 @@ type
   public
     procedure Delete(const _key: String);
     property Items[const _key: string]: Pointer read GetObject write SetObject;
+    // much faster than Items[lowercase(_key)]
+    function FindIdentifier(const identifier: string): TObject;
   end;
 
 implementation
 
 constructor THash.Create;
 begin
-  FeldMaxValue:=7; //irgendein kleiner Wert der Eigenschaft 2**n-1 (English: any small value of the property 2**n-1)
+  FeldMaxValue:=255; // any small value of the property 2**n-1
   FeldBelegt:=0;
   FMaxCapacity:=-1;
   GetMem(Feld,sizeof(PHashEntry)*Succ(FeldMaxValue));
@@ -216,8 +218,8 @@ var
   i: Integer;
 begin
   Result:=0;
-  for i:=0 to length(key)-1 do
-    Result:=33*Result+Ord(key[i+1]);
+  for i := 1 to length(key) do
+    Result:=33*Result+Ord(key[i]);
   Result:=Result+Result shr 5;
 end;
 
@@ -469,6 +471,41 @@ end;
 procedure TObjectHash.Delete(const _key: String);
 begin
   DeleteKey(_key);
+end;
+
+var
+  LastHashIdentifier: string;
+  LastHash: integer;
+
+function TObjectHash.FindIdentifier(const identifier: string): TObject;
+var hash,c,i: Integer;
+    he: PHashEntry;
+begin // optimized Hash(lowercase(identifier)) - more than 3 times faster
+  if identifier<>'' then begin
+    if identifier=LastHashIdentifier then
+      hash := LastHash else begin
+      hash := 0;
+      for i := 1 to length(identifier) do begin
+        c := ord(identifier[i]);
+        if c in [ord('A')..ord('Z')] then
+          inc(c,32);
+        hash := 33*hash+c;
+      end;
+      hash := hash+hash shr 5;
+      LastHash := hash;
+      LastHashIdentifier := identifier;
+    end;
+    he := Feld^[hash and FeldMaxValue];
+    while Assigned(he) do begin
+      if he^.hash=hash then
+        if SameText(he^.key,identifier) then begin
+          Result := he^.data;
+          Exit;
+        end;
+      he := he^.next;
+    end;
+  end;
+  Result := nil;
 end;
 
 end.

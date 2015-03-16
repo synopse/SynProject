@@ -501,8 +501,10 @@ type
       Value is the 2nd part of @@seealso parameter. }
     property SeeAlso: TStringPairVector read FSeeAlso;
 {$endif}
-
+    { returns the file path of the unit source code }
     function BasePath: string; override;
+
+    procedure FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio); virtual;
   end;
 
   { @abstract(Pascal constant.)
@@ -555,6 +557,7 @@ type
     destructor Destroy; override;
     constructor Create; override;
     property Members: TPasItems read FMembers;
+    procedure FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio); override;
   end;
 
   { Methodtype for @link(TPasMethod) }
@@ -792,6 +795,8 @@ type
 
     { Is Visibility of items (Fields, Methods, Properties) important ? }
     function ShowVisibility: boolean;
+
+    procedure FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio); override;
   end;
   
   EAnchorAlreadyExists = class(Exception);
@@ -960,6 +965,8 @@ type
     function FileNewerThanCache(const FileName: string): boolean;
 
     function BasePath: string; override;
+
+    procedure FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio); override;
   end;
 
   { Container class to store a list of @link(TBaseItem)s. }
@@ -1059,6 +1066,8 @@ type
         A, B: Integer;
       #) }
     procedure SetFullDeclaration(PrefixName: boolean; const Suffix: string);
+
+    procedure FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio); virtual;
   end;
 
   { @Name holds a collection of methods. It introduces no
@@ -1184,6 +1193,7 @@ begin
     end;
   end;
 end;
+
 
 { TBaseItem ------------------------------------------------------------------- }
 
@@ -1382,6 +1392,7 @@ function TBaseItem.BasePath: string;
 begin
   Result := IncludeTrailingPathDelimiter(GetCurrentDir);
 end;
+
 
 { TPasItem ------------------------------------------------------------------- }
 
@@ -1614,6 +1625,15 @@ begin
     Result := inherited BasePath;
 end;
 
+procedure TPasItem.FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio);
+begin
+  if MyUnit=nil then
+    MyUnit := aUnit;
+  if MyObject=nil then
+    MyObject := aObject;
+end;
+
+
 { TPasEnum ------------------------------------------------------------------- }
 
 constructor TPasEnum.Create;
@@ -1632,6 +1652,11 @@ destructor TPasEnum.Destroy;
 begin
   FMembers.Free;
   inherited;
+end;
+procedure TPasEnum.FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio);
+begin
+  inherited;
+  FMembers.FixItemsMyUnit(aUnit,aObject);
 end;
 
 {$ifndef DONTUSETAGS}
@@ -1683,6 +1708,7 @@ begin
 end;
 {$endif}
 
+
 { TBaseItems ----------------------------------------------------------------- }
 
 constructor TBaseItems.Create(const AOwnsObject: Boolean);
@@ -1708,9 +1734,9 @@ end;
 
 function TBaseItems.FindName(const AName: string): TBaseItem;
 begin
-  result := nil;
   if AName<>'' then
-    result := TPasItem(FHash.Items[LowerCase(AName)]);
+    result := TPasItem(FHash.FindIdentifier(AName)) else
+    result := nil;
 end;
 
 procedure TBaseItems.Add(const AObject: TBaseItem);
@@ -1765,6 +1791,7 @@ begin
   Clear;
   Add(AObject);
 end;
+
 
 { TPasItems ------------------------------------------------------------------ }
 
@@ -1878,6 +1905,14 @@ begin
       PasItemAt[i].FullDeclaration := Suffix;
   end;
 end;
+
+procedure TPasItems.FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio);
+var i: integer;
+begin
+  for i := 0 to Count-1 do
+    PasItemAt[i].FixItemsMyUnit(aUnit,aObject);
+end;
+
 
 { TPasCio -------------------------------------------------------------------- }
 
@@ -2061,6 +2096,15 @@ begin
   end;
 end;
 
+procedure TPasCio.FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio);
+begin
+  inherited FixItemsMyUnit(aUnit,nil);
+  FFields.FixItemsMyUnit(aUnit,self);
+  FMethods.FixItemsMyUnit(aUnit,self);
+  FProperties.FixItemsMyUnit(aUnit,self);
+end;
+
+
 { TPasUnit ------------------------------------------------------------------- }
 
 constructor TPasUnit.Create;
@@ -2228,6 +2272,17 @@ begin
   Result := ExtractFilePath(ExpandFileName(SourceFileName));
 end;
 
+procedure TPasUnit.FixItemsMyUnit(aUnit: TPasUnit; aObject: TPasCio);
+begin
+  inherited FixItemsMyUnit(aUnit,nil);
+  FTypes.FixItemsMyUnit(aUnit,nil);
+  FVariables.FixItemsMyUnit(aUnit,nil);
+  FCIOs.FixItemsMyUnit(aUnit,nil);
+  FConstants.FixItemsMyUnit(aUnit,nil);
+  FFuncsProcs.FixItemsMyUnit(aUnit,nil);
+end;
+
+
 { TPasUnits ------------------------------------------------------------------ }
 
 function TPasUnits.ExistsUnit(const AUnit: TPasUnit): Boolean;
@@ -2244,6 +2299,7 @@ procedure TPasUnits.SetUnitAt(const AIndex: Integer; const Value: TPasUnit);
 begin
   Items[AIndex] := Value;
 end;
+
 
 { TPasMethod ----------------------------------------------------------------- }
 
@@ -2391,6 +2447,7 @@ begin
 end;
 {$endif}
 
+
 { TPasProperty --------------------------------------------------------------- }
 
 procedure TPasProperty.Deserialize(const ASource: TStream);
@@ -2418,6 +2475,7 @@ begin
   SaveStringToStream(FPropType, ADestination);
   SaveStringToStream(FReader, ADestination);
 end;
+
 
 { TExternalItem ---------------------------------------------------------- }
 
@@ -2504,6 +2562,7 @@ function TExternalItem.BasePath: string;
 begin
   Result := ExtractFilePath(ExpandFileName(SourceFileName));
 end;
+
 
 { global things ------------------------------------------------------------ }
 
@@ -2634,6 +2693,7 @@ begin
       result := result+'('+anc+')';
   end;
 end;
+
 
 initialization
   TSerializable.Register(TPasItem);

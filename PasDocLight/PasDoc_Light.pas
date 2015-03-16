@@ -432,7 +432,7 @@ var
 label ok;
 {$endif}
 begin
-  Old := TPasUnit(Units.FindName(ExtractFileName(SourceFileName)));
+  Old := TPasUnit(FUnits.FindName(ValAt(ExtractFileName(SourceFileName),0,'.')));
   if (Old<>nil) and SameText(Old.SourceFileName,SourceFileName) then
     exit; // already parsed with the same exact source file name -> fast exit
   LLoaded := false;

@@ -36,7 +36,10 @@ interface
 
 uses
   Windows, SysUtils, Classes, Contnrs,
-  ProjectRTF, ProjectCommons, ProjectSections, ProjectVersioning;
+  ProjectRTF,
+  ProjectCommons,
+  ProjectSections,
+  ProjectVersioning;
 
 const
   /// all on-the-fly generated diagrams (from WinGraphviz) are stored in
@@ -272,6 +275,9 @@ type
     fGraphValues: TSection;
     SideBar: TProjectWriter;
     ApiFolder: string;
+    {$ifdef USEPARSER}
+    SAD: array of TObject; // TProjectBrowser for [SAD-Parse].SourceFile= details
+    {$endif}
     SADUnitNames: TStringList;
     // cross-references:
     ReferencePictures, // Picture Caption=Bookmark0,Bookmark1...
@@ -321,7 +327,9 @@ type
     procedure CreateSummarySheets(Tests: TSection); // manually add all Test Summary Sheets
     procedure CreateRiskAssessmentTable;
     function ExpandDocumentNames(text: string): string; // '@DI@' -> ...
-      // 'DI-4.2.1' -> 'Design Input 4.2.1 (SCR#23)':
+    procedure HtmlWriteWithLinks(Sender: THTML; P: PAnsiChar; PLen: Integer;
+      PIsCode: boolean; W: PStringWriter);
+    // 'DI-4.2.1' -> 'Design Input 4.2.1 (SCR#23)':
     function GetDIDisplayName(aDI: TSection): string;
     function GetPeopleFunction(const PeopleName: string; const Default: string = ''): string;
     function GetPeopleFunctionDescription(const PeopleName: string; const Default: string = ''): string;
@@ -359,6 +367,7 @@ uses
 {$ifdef USEPARSER}
   ProjectParser,
   PasDoc_Items,
+  PasDoc_Types,
   SynZipFiles,
 {$endif}
   ProjectDiff; // for TMemoryMap
@@ -738,6 +747,7 @@ begin
           SideBar.RtfLinkTo(Value,Name);
         SideBar.AddRtfContent(#1'<br><small>'#1+Purpose+#1'</small>'#1).RtfPar;
       until P=nil;
+      (WR as THTML).OnBufferWrite := HtmlWriteWithLinks;
     end;
   // 1.2 Header and Footer
   if aDocumentTitle='' then
@@ -1263,9 +1273,6 @@ var Ok: array[0..high(FRONTPAGE_OPTIONS)] of boolean;
     Test, TestDoc: PDocument; // [Test]
     Tests: array of TSection;
     Required: array of boolean; // [SAD-MENU-01].Source=Firmware -> Required[ParseFirmwareIndex] := true
-    {$ifdef USEPARSER}
-    SAD: array of TProjectBrowser; // contains all [SAD-Parse].SourceFile= details
-    {$endif}
 procedure RequiredSetOne(TestSection: TSection);
 function RequiredGetSource(TestSection: TSection): PChar;
 var Sec: TSection;
@@ -1330,9 +1337,6 @@ begin
     result := '';
 end;
 begin
-  {$ifdef USEPARSER}
-  SAD := nil;
-  {$endif}
   Doc := DocumentFind(SectionName);
   if Doc=nil then exit;
   TestDoc := DocumentFind(Doc.Params['DocByDescription']);
@@ -1508,10 +1512,12 @@ begin
       for i := 0 to high(SAD) do begin
         SAD[i] := TProjectBrowser.Create(self);
         // auto create units descriptions from source files
-        SAD[i].FillUnits(Parse[i],false);
-        with SAD[i].Units do
-          for j := 0 to Count-1 do
+        TProjectBrowser(SAD[i]).FillUnits(Parse[i],false);
+        with TProjectBrowser(SAD[i]).Units do
+          for j := 0 to Count-1 do begin
             SADUnitNames.Add(UnitAt[j].Name+'.pas');
+            UnitAt[j].FixItemsMyUnit(UnitAt[j],nil);
+          end;
       end;
     end;
 {$endif}
@@ -1544,22 +1550,23 @@ begin
             WR.RtfTitle(title,1,true,SectionNameValue);
           CreateRTFBody(Parse[i],2);
           // write unit table
-          if SAD[i].Units.Count>0 then begin
+          if TProjectBrowser(SAD[i]).Units.Count>0 then begin
             WR.RtfTitle(title+' '+sSourceCodeImplementation,ParseTitleOffset,
               true,'SIDE_'+title);
             if WR.HandlePages then
               WR.RtfTitle(format(sUsedUnitsN,[title]),ParseTitleOffset+1);
             WR.AddRtfContent(sUsedUnitsTextN,[title]);
-            SAD[i].RtfUsesUnits(WR,ApiFolder);
+            TProjectBrowser(SAD[i]).RtfUsesUnits(WR,ApiFolder);
             // write all units descriptions
             if isTrue(ParseSAD.Params['WithAllfields']) then
               par := '*' else
               par := ParseSAD.Params['UnitsUsed'];
             if i>0 then // add description once
-              SAD[i].UnitsDescription.AddStrings(SAD[i-1].UnitsDescription);
+              TProjectBrowser(SAD[i]).UnitsDescription.AddStrings(
+                TProjectBrowser(SAD[i-1]).UnitsDescription);
             if WR.HandlePages then
-              SAD[i].RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,'','',Footer) else
-              SAD[i].RtfUsesUnitsDescription(WR,0,par,ApiFolder,title,Footer)
+              TProjectBrowser(SAD[i]).RtfUsesUnitsDescription(WR,ParseTitleOffset+1,par,'','',Footer) else
+              TProjectBrowser(SAD[i]).RtfUsesUnitsDescription(WR,0,par,ApiFolder,title,Footer)
           end;
         end;
       // 2.2. second part: follow \LAYOUT order
@@ -1638,6 +1645,7 @@ begin
   {$ifdef USEPARSER}
   for i := 0 to high(SAD) do
     SAD[i].Free;
+  SAD := nil;
   {$endif}
 end;
 
@@ -2107,6 +2115,130 @@ begin
         end;}
       end;
   end;
+end;
+
+procedure TProject.HtmlWriteWithLinks(Sender: THTML; P: PAnsiChar;
+  PLen: Integer; PIsCode: boolean; W: PStringWriter);
+{$ifdef USEPARSER}
+procedure WriteSymbol(unitName: string; const symbolName, itemName: string);
+begin
+  if not Sender.OnBufferWriteForceCode then
+    unitName := ApiFolder+'\'+unitName;
+  W^.Add(format(HTML_TAGS[false,hAHref],
+    [unitName+'.html#'+RtfBookMarkName(symbolName)]));
+  if not PIsCode then
+    W^.Add(HTML_TAGS[false,hCode]);
+  W^.Add(itemName); // write name as in source code
+  if not PIsCode then
+    W^.Add(HTML_TAGS[true,hCode]);
+  W^.Add(HTML_TAGS[true,hAHref]);
+end;
+var i,b,ps: integer;
+    dots: array[0..5] of integer;
+    dotsCount: Integer;
+    symbol: TNameParts;
+    global: TBaseItem;
+    item: TPasItem absolute global;
+    unitName, symbolName: string;
+begin
+  if (P<>nil) and (PLen>0) then
+  if (Sender.OnBufferWriteForceCode or PIsCode) and
+     not IdemPChar(P,'<A ') then begin
+    i := 0;
+    repeat
+      case P[i] of
+      '<': begin // ignore any HTML <tag>
+        b := i;
+        while i<PLen do begin
+          inc(i);
+          if P[i]='>' then begin
+            inc(i);
+            break;
+          end;
+        end;
+        W^.Add(P+b,i-b);
+      end;
+      'a'..'z','A'..'Z': begin
+        dotsCount := 0;
+        b := i;
+        while i<PLen do begin
+          inc(i);
+          case P[i] of
+          '.': begin
+            if dotsCount>high(dots) then
+              break;
+            dots[dotsCount] := i;
+            inc(dotsCount);
+            while (i<PLen) and (P[i]=' ') do inc(i); // allow 'TType. Field'
+          end;
+          'a'..'z','A'..'Z','_','0'..'9': ;
+           else break;
+           end;
+        end;
+        if (i-b>2) and not (P[i] in ['\','/']) then begin
+          if dotsCount=0 then begin
+            SetLength(symbol,1);
+            SetString(symbol[0],P+b,i-b);
+          end else begin
+            SetLength(symbol,dotsCount+1);
+            SetString(symbol[0],P+b,dots[0]-b);
+            for ps := 1 to dotsCount-2 do
+              SetString(symbol[ps],P+dots[ps]+1,dots[ps+1]-dots[ps]-1);
+            SetString(symbol[dotsCount],P+dots[dotsCount-1]+1,i-dots[dotsCount-1]-1);
+          end;
+          global := nil;
+          if (dotsCount=1) and SameText(symbol[1],'pas') then begin
+            for ps := 0 to high(SAD) do begin
+              global := TProjectBrowser(SAD[ps]).Units.FindName(symbol[0]);
+              if global<>nil then begin
+                WriteSymbol(item.Name,'',item.Name);
+                break;
+              end;
+            end;
+          end else
+          for ps := 0 to high(SAD) do begin
+            global := TProjectBrowser(SAD[ps]).FindGlobal(symbol);
+            if global<>nil then begin
+              if global.InheritsFrom(TPasItem) then begin
+                if item.MyUnit=nil then begin
+                  assert(item.InheritsFrom(TPasUnit),item.Name);
+                  unitName := item.Name;
+                  symbolName := '';
+                end else begin
+                  unitName := item.MyUnit.Name;
+                  if item.MyObject<>nil then
+                    if item.MyObject.RawDescriptionInfo^.Content<>'' then
+                      symbolName := item.MyObject.Name else
+                      continue else
+                    if item.RawDescriptionInfo^.Content<>'' then
+                      symbolName := item.Name else
+                      continue;
+                end;
+                if dotsCount>0 then
+                  SetString(symbol[0],P+b,i-b);
+                WriteSymbol(unitName,symbolName,symbol[0]);
+              end else
+                W^.Add(global.Name); // write name as in source code
+              break;
+            end;
+            global := nil;
+          end;
+          if global=nil then
+            W^.Add(P+b,i-b);
+        end else
+          W^.Add(P+b,i-b);
+      end;
+      else begin
+        W^.Add(P[i]);
+        inc(i);
+      end;
+      end;
+    until i>=PLen;
+  end else
+{$else}
+begin
+{$endif USEPARSER}
+    W^.Add(P,PLen);
 end;
 
 function TProject.ExpandDocumentNames(text: string): string;

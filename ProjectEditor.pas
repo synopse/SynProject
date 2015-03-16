@@ -1839,10 +1839,10 @@ const
   BBCODE_TAGS: THtmlTagsSet = (
     ('[b]','[i]','[u]','[em]',#13#10,'- ','[color=navy]','[color=navy][i]',
      ' ','[quote]','[url=%s]','[quote]','   ','',#13#10,#13#10#13#10'[h]','[ins]',
-     '<','>','&','','- ','[b]','','',''),
+     '<','>','&','','- ','[b]','','','',''),
     ('[/b]','[/i]','[/u]','[/em]','','','[/color]','[/i][/color]',
      '','[/quote]','[/url]','[/quote]','','','','[/h]','[/ins]',
-     '','','','','','[/b]','','',''));
+     '','','','','','[/b]','','','',''));
 
 function TFrameEditor.FormatProAs(P: PAnsiChar; const Tags: THtmlTagsSet): AnsiString;
 // convert .pro format into html or [bbcode] format
