@@ -339,7 +339,8 @@ type
     InTable, HasLT, TestWord: boolean;
     Stack: array[0..20] of THtmlTags; // stack to handle { }
     fOnBufferWrite: TOnBufferWrite;
-    fOnBufferWriteForceCode: boolean;
+    fOnBufferWriteForceCodeForUnit: string;
+    fOnBufferWriteForceCodeForObject: string;
     Buffer: TStringWriter;
     fColsAreHeader: boolean;
     fColsMD: TIntegerDynArray;
@@ -403,7 +404,10 @@ type
     function RtfGoodSized(const Text: string): string; override;
     procedure SetInfo(const aTitle, aAuthor, aSubject, aManager, aCompany: string); override;
     property OnBufferWrite: TOnBufferWrite read fOnBufferWrite write fOnBufferWrite;
-    property OnBufferWriteForceCode: boolean read fOnBufferWriteForceCode write fOnBufferWriteForceCode; 
+    property OnBufferWriteForceCodeForUnit: string
+      read fOnBufferWriteForceCodeForUnit write fOnBufferWriteForceCodeForUnit; 
+    property OnBufferWriteForceCodeForObject: string
+      read fOnBufferWriteForceCodeForObject write fOnBufferWriteForceCodeForObject;
   end;
 
   THeapMemoryStream = class(TMemoryStream)

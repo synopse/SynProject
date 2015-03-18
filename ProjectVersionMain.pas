@@ -75,7 +75,7 @@ unit ProjectVersionMain;
   - inlined pictures (e.g. in a grid) are now exported as binary in rtf
   - new HeaderWithLogo option for DocumentFrontPage=/SubDocFrontPage= setting,
     creating an header with the Company logo instead of the default text header
-    (can be set globaly also for all documents in the [Project] section,
+    (can be set globaly also  for all documents in the [Project] section,
     same as the NoHeaderBorder= setting)
   - new FullTitleInTableOfContent option for DocumentFrontPage=/SubDocFrontPage=
     setting, adding the will title in the table of contents (e.g. not only the DI

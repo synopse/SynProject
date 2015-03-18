@@ -889,6 +889,7 @@ type
     FSourceFileAge: integer;
     FIsUnit: boolean;
     FIsProgram: boolean;
+    FIncludedInFindGlobal: Boolean;
     procedure Serialize(const ADestination: TStream); override;
     procedure Deserialize(const ASource: TStream); override;
   public
@@ -950,6 +951,8 @@ type
       class for this). }
     property IsUnit: boolean read FIsUnit write FIsUnit;
     property IsProgram: boolean read FIsProgram write FIsProgram;
+    property IncludedInFindGlobal: Boolean
+      read FIncludedInFindGlobal write FIncludedInFindGlobal;
       
     { Returns if unit WasDeserialized, and file FileName exists, 
       and file FileName is newer than CacheAge. 

@@ -45,6 +45,7 @@ uses
   ProjectTypes,
   ProjectSections,
   ProjectRTF,
+  PasDoc_Hashes,
   PasDoc_Types,
   PasDoc_Items,
   PasDoc_SortSettings,
@@ -74,6 +75,8 @@ type
   public
     // list of already written units filenames
     UnitsDescription: TStringList;
+    // list of SourceIgnoreSymbol=.... CSV values
+    SourceIgnoreSymbol: TObjectHash;
 {$ifdef WITH_GRAPHVIZ}
     // path to GraphViz generated *.emf files
     GraphValues: TSection;
@@ -110,7 +113,8 @@ type
     procedure RtfUsesUnitsDescription(WR: TProjectWriter; TitleLevel: integer;
       const CSVUnitsWithFields,ExternalPath,ExternalTitle: string; OnFooter: TProjectFooter);
     // search for a symbol name inside all units
-    function FindGlobal(const NameParts: TNameParts): TBaseItem;
+    function FindGlobal(const NameParts: TNameParts; const CurrentUnit: string='';
+      const CurrentObject: string=''): TBaseItem;
     // the associated project
     property Project: TProject read FProject;
     // the current class hierarchy
@@ -310,6 +314,7 @@ begin
   Close(LogFile);
   ioresult;
   UnitsDescription.Free;
+  SourceIgnoreSymbol.Free;
 {$ifdef WITH_GRAPHVIZ}
   if GraphValues<>nil then begin
     if GraphValuesModified then
@@ -354,8 +359,18 @@ begin
       RawDescription := s; // override existing item description
   end;
 end;
+procedure AddSourceIgnoreSymbol(P: PAnsiChar);
+var symbol: string;
+begin
+  if P<>nil then
+    repeat
+      symbol := GetNextItem(P);
+      if symbol<>'' then
+        SourceIgnoreSymbol.SetObject(LowerCase(symbol),self);
+    until P=nil;
+end;
 var i, j, k: integer;
-    Dir, data, txt: string;
+    Dir, data, txt, SourceIgnoreSymbolByUnit: string;
 begin // Section = [SAD-EIA] e.g.
   Units.Clear;
   if Section=nil then
@@ -375,6 +390,13 @@ begin // Section = [SAD-EIA] e.g.
       SourceDefaultPath := UpperDefaultPath+Section['SourcePath']; // D:\Dev\Synopse\EIA
     SourceDefaultPath := IncludeTrailingPathDelimiter(SourceDefaultPath);
   end;
+  SourceIgnoreSymbol.Free;
+  SourceIgnoreSymbol := TObjectHash.Create;
+  for i := 0 to high(PASCALKEYWORDS) do
+    SourceIgnoreSymbol.SetObject(LowerCase(PASCALKEYWORDS[i]),self);
+  AddSourceIgnoreSymbol('the,you,use,will,must,copy,format,have,some,get,call,'+
+    'method,any,all,from,this');
+  AddSourceIgnoreSymbol(pointer(Section['SourceIgnoreSymbol']));
   SourceFileNames.Clear;
   AddSourceFileName(Section['SourceFile']); // fill SourceFileNames[]
   if SourceFileNames.Count=0 then
@@ -413,9 +435,11 @@ begin // Section = [SAD-EIA] e.g.
     // Units[].Use->Units[] twice
     ParseFiles;
     // init OutputFileName = SourceFileName for display
+    SourceIgnoreSymbolByUnit := LowerCase(Section['SourceIgnoreSymbolByUnit']);
     if UpperDefaultPath<>'' then
     for i := 0 to Units.Count-1 do
     with TPasUnit(Units[i]) do begin
+      IncludedInFindGlobal := CSVIndexOf(SourceIgnoreSymbolByUnit,LowerCase(Name))<0;
       if IdemPChar(pointer(SourceFileName),pointer(UpperDefaultPath)) then
         DisplayFileName := copy(SourceFileName,length(UpperDefaultPath)+1,maxInt) else
         DisplayFileName := SourceFileName;
@@ -453,7 +477,7 @@ begin // Section = [SAD-EIA] e.g.
     end;
     // update cache file
     ZipCacheUpdate;
-    Units.SortShallow; // sort by name, not by directory
+    Units.SortByDirectory; // directory order is needed for the API reference
     Units.SortOnlyInsideItems([
       ssConstants, ssFuncsProcs, ssTypes, ssVariables, ssUsesClauses,
       ssRecordFields, ssNonRecordFields, ssMethods, ssProperties]);
@@ -467,25 +491,53 @@ begin // Section = [SAD-EIA] e.g.
   end;
 end;
 
-function TProjectBrowser.FindGlobal(const NameParts: TNameParts): TBaseItem;
+function TProjectBrowser.FindGlobal(const NameParts: TNameParts;
+  const CurrentUnit,CurrentObject: string): TBaseItem;
 var i: Integer;
     Item: TBaseItem;
     U: TPasUnit;
+    expectedInclusion: boolean;
 begin
   Result := nil;
   if (Units=nil) or (Units.Count=0) then Exit;
   case Length(NameParts) of
-    1: { field/method/property } begin
-        Result := TPasUnit(Units.FindName(NameParts[0]));
-        if Result<>nil then
-          exit;
-        for i := 0 to Units.Count - 1 do begin
-           Result := TPasUnit(Units.List[i]).FindItem(NameParts[0]);
-           if Result <> nil then Exit;
-         end;
-        end;
+    1: begin  { field/method/property }
+         Result := TPasUnit(Units.FindName(NameParts[0]));
+         if Result<>nil then
+           exit;
+         if CurrentUnit<>'' then begin
+           U := TPasUnit(Units.FindName(CurrentUnit));
+           if U<>nil then begin
+             result := U.FindItem(NameParts[0]);
+             if result <> nil then
+               exit;
+             if CurrentObject<>'' then begin
+               result := U.FindFieldMethodProperty(CurrentObject,NameParts[0]);
+               if result <> nil then
+                 exit;
+             end;
+             expectedInclusion := U.IncludedInFindGlobal;
+           end else
+             expectedInclusion := true;
+           end else
+           expectedInclusion := true;
+         for i := 0 to Units.Count - 1 do
+           with TPasUnit(Units.List[i]) do
+           if IncludedInFindGlobal=expectedInclusion then begin
+             Result := FindItem(NameParts[0]);
+             if Result <> nil then Exit;
+           end;
+         if not expectedInclusion then // e.g. crossplatform, then main
+           for i := 0 to Units.Count - 1 do
+             with TPasUnit(Units.List[i]) do
+             if IncludedInFindGlobal then begin
+               Result := FindItem(NameParts[0]);
+               if Result <> nil then Exit;
+             end;
+       end;
     2: begin  { object.field/method/property }
-         for i := 0 to Units.Count - 1 do begin
+         for i := 0 to Units.Count - 1 do
+         if TPasUnit(Units.List[i]).IncludedInFindGlobal then begin
            Result := TPasUnit(Units.List[i]).FindFieldMethodProperty(
              NameParts[0], NameParts[1]);
            if Assigned(Result) then Exit;
@@ -497,7 +549,7 @@ begin
        end;
     3: begin  { unit.object/class/interface.field/method/property }
          U := TPasUnit(Units.FindName(NameParts[0]));
-         if (not Assigned(U)) then Exit;
+         if (not Assigned(U)) or (not U.IncludedInFindGlobal) then Exit;
          Item := U.FindItem(NameParts[1]);
          if (not Assigned(Item)) then Exit;
          Item := Item.FindItem(NameParts[2]);
@@ -1335,23 +1387,6 @@ begin
         line := '{\i '+line;
         inMain := true;
       end;
-      // find any component name used in this line -> Fixed Font
-      j := 1;
-      if Item.MyUnit<>nil then
-      repeat
-        while (j<=length(line)) and (line[j] in [' ','(','[']) do
-          inc(j);
-        i := j;
-        while (i<=length(line)) and not (line[i] in [' ','(','[']) do
-          inc(i);
-        ToFind := copy(line,j,i-j);
-        Find := Item.FindName(OneNamePart(ToFind));
-        if Find<>nil then begin
-          insert('}',line,i);
-          insert('{\f1 ',line,j);
-        end;
-        j := i;
-      until j>=length(line);
     end;
     // find @TComponent and write it as Fixed Font
     j := 1;
@@ -1461,6 +1496,8 @@ begin
     if not highlight and not withVoid and (m.RawDescriptionInfo.Content='') then
       continue;
     line.Clear;
+    if not line.HandlePages then
+      line.RtfBookMark('',fullName,false);
     decl := m.FullDeclaration;
     if decl='' then
       decl := m.Name else
@@ -1469,7 +1506,8 @@ begin
     if highlight then
       decl := '!'+decl;
     line.RtfPascal(decl,92);
-    line.AddRtfContent('\sb40\li320 ');
+    if line.HandlePages then
+      line.AddRtfContent('\sb40\li320 ');
     ok := RtfDescription(m,line);
     if highlight then begin
       for i := 0 to high(Project.ParseSAD.List) do
@@ -1526,7 +1564,7 @@ begin
   ok := false;
   line := WR.Clone;
   if line.InheritsFrom(THTML) then
-    THTML(line).OnBufferWriteForceCode := true;
+    THTML(line).OnBufferWriteForceCodeForUnit := aUnit.Name;
   SetLength(OKs,Items.Count);
   SL := TStringList.Create;
   try
@@ -1573,8 +1611,10 @@ begin
       p := TPasItem(Items[i]);
       isCio := p.InheritsFrom(TPasCio);
       highlight := OKs[i]=okHighlighted;
-      hasFields := isCio and withFields and (hasFied(TPasCio(p).Fields) or
-        hasFied(TPasCio(p).Methods) or hasFied(TPasCio(p).Properties));
+      hasFields := isCio and withFields and
+        (hasFied(TPasCio(p).Fields) or
+         hasFied(TPasCio(p).Methods) or
+         hasFied(TPasCio(p).Properties));
       if p.InheritsFrom(TPasEnum) then
       with TPasEnum(p) do begin
         decl := Name+' = ';
@@ -1610,7 +1650,7 @@ begin
   {      j := pos('\cellx',WR.fCols);
         if j>0 then
           insert('\clbrdrl\brdrs',WR.fCols,j); // manual border left }
-        if ok then
+        if ok and WR.HandlePages then
           line.RtfPar; // gap between objects, not before the first item
         line.RtfPascal(decl,100);
       end else
@@ -1639,9 +1679,13 @@ begin
         line.RtfPar(true).SaveToWriter(WR);
       if hasFields then begin
   //      WR.fCols := StringReplaceAll(WR.fCols,'\clbrdrl\brdrs',''); // reset border
+        if line.InheritsFrom(THTML) then
+          THTML(line).OnBufferWriteForceCodeForObject := p.Name;
         Field(TPasCio(p).Fields,'fields');
         Field(TPasCio(p).Methods,'methods');
         Field(TPasCio(p).Properties,'properties');
+        if line.InheritsFrom(THTML) then
+          THTML(line).OnBufferWriteForceCodeForObject := '';
       end;
       ok := true;
     end;

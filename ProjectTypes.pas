@@ -2122,16 +2122,24 @@ procedure TProject.HtmlWriteWithLinks(Sender: THTML; P: PAnsiChar;
 {$ifdef USEPARSER}
 procedure WriteSymbol(unitName: string; const symbolName, itemName: string);
 begin
-  if not Sender.OnBufferWriteForceCode then
-    unitName := ApiFolder+'\'+unitName;
-  W^.Add(format(HTML_TAGS[false,hAHref],
-    [unitName+'.html#'+RtfBookMarkName(symbolName)]));
+  if Sender.OnBufferWriteForceCodeForUnit<>'' then
+    if SameText(unitName,Sender.OnBufferWriteForceCodeForUnit) then
+      if symbolName='' then
+        unitName := '' else
+        unitName := '#' else
+      unitName := unitName+'.html#' else
+      unitName := ApiFolder+'\'+unitName+'.html#';
+  if symbolName<>'' then
+    unitName := unitName+RtfBookMarkName(symbolName);
+  if unitName<>'' then
+    W^.Add(format(HTML_TAGS[false,hAHref],[unitName]));
   if not PIsCode then
     W^.Add(HTML_TAGS[false,hCode]);
   W^.Add(itemName); // write name as in source code
   if not PIsCode then
     W^.Add(HTML_TAGS[true,hCode]);
-  W^.Add(HTML_TAGS[true,hAHref]);
+  if unitName<>'' then
+    W^.Add(HTML_TAGS[true,hAHref]);
 end;
 var i,b,ps: integer;
     dots: array[0..5] of integer;
@@ -2142,7 +2150,7 @@ var i,b,ps: integer;
     unitName, symbolName: string;
 begin
   if (P<>nil) and (PLen>0) then
-  if (Sender.OnBufferWriteForceCode or PIsCode) and
+  if ((Sender.OnBufferWriteForceCodeForUnit<>'') or PIsCode) and
      not IdemPChar(P,'<A ') then begin
     i := 0;
     repeat
@@ -2158,7 +2166,7 @@ begin
         end;
         W^.Add(P+b,i-b);
       end;
-      'a'..'z','A'..'Z': begin
+      'a'..'z','A'..'Z','_': begin
         dotsCount := 0;
         b := i;
         while i<PLen do begin
@@ -2175,7 +2183,7 @@ begin
            else break;
            end;
         end;
-        if (i-b>2) and not (P[i] in ['\','/']) then begin
+        if (i-b>2) and not (P[i] in ['\']) then begin
           if dotsCount=0 then begin
             SetLength(symbol,1);
             SetString(symbol[0],P+b,i-b);
@@ -2197,25 +2205,28 @@ begin
             end;
           end else
           for ps := 0 to high(SAD) do begin
-            global := TProjectBrowser(SAD[ps]).FindGlobal(symbol);
+            with TProjectBrowser(SAD[ps]) do
+              if (dotsCount>0) or (SourceIgnoreSymbol=nil) or
+                 (SourceIgnoreSymbol.FindIdentifier(symbol[0])=nil) then
+              global := FindGlobal(symbol,Sender.OnBufferWriteForceCodeForUnit,
+                Sender.OnBufferWriteForceCodeForObject);
             if global<>nil then begin
               if global.InheritsFrom(TPasItem) then begin
+                if dotsCount>0 then
+                  SetString(symbol[0],P+b,i-b);
+                symbolName := '';
                 if item.MyUnit=nil then begin
                   assert(item.InheritsFrom(TPasUnit),item.Name);
                   unitName := item.Name;
-                  symbolName := '';
                 end else begin
                   unitName := item.MyUnit.Name;
-                  if item.MyObject<>nil then
+                  if item.MyObject<>nil then begin
                     if item.MyObject.RawDescriptionInfo^.Content<>'' then
-                      symbolName := item.MyObject.Name else
-                      continue else
+                      symbolName := item.MyObject.Name+'.'+item.Name;
+                  end else
                     if item.RawDescriptionInfo^.Content<>'' then
-                      symbolName := item.Name else
-                      continue;
+                      symbolName := item.Name;
                 end;
-                if dotsCount>0 then
-                  SetString(symbol[0],P+b,i-b);
                 WriteSymbol(unitName,symbolName,symbol[0]);
               end else
                 W^.Add(global.Name); // write name as in source code
