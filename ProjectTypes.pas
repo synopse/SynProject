@@ -2128,7 +2128,7 @@ begin
         unitName := '' else
         unitName := '#' else
       unitName := unitName+'.html#' else
-      unitName := ApiFolder+'\'+unitName+'.html#';
+      unitName := ApiFolder+'/'+unitName+'.html#';
   if symbolName<>'' then
     unitName := unitName+RtfBookMarkName(symbolName);
   if unitName<>'' then
