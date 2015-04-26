@@ -127,7 +127,7 @@ type
       lastRtfImage, lastRtfCols, lastRtfList);
   TTitleLevel = array[0..6] of integer;
   TProjectWriterClass = class of TProjectWriter;
-  TSaveFormat = (fNoSave,fDoc,fPdf,fHtml);
+  TSaveFormat = (fNoSave,fDoc,fPdf,fHtml,fRtf);
 
   TProjectLayout = record
     Page: record
@@ -1824,9 +1824,11 @@ procedure TRTF.SaveToFile(Format: TSaveFormat; OldWordOpen: boolean);
 begin
   RtfText;
   WR.AddShort('}}');
-  if not (Format in [fDoc,fPdf]) then
+  if not (Format in [fDoc,fPdf,fRtf]) then
     exit;
   WR.SaveToFile(FileName);
+  if Format=fRtf then
+    exit;
   if OldWordOpen then
     Format := fDoc;
 {$ifdef DIRECTEXPORTTOWORD}

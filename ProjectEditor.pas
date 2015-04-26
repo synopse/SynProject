@@ -1074,6 +1074,7 @@ begin
       Menu := NewMenu(SectionName,aValue,PopupMenuLink);
       if Value['Source']<>'' then begin // [SAD] document
         NewMenu(SectionName,aValue,Menu);
+        NewMenu(SectionName+' rtf',aValue,Menu);
         NewMenu(SectionName+' pdf',aValue,Menu);
         NewMenu(SectionName+' html',aValue,Menu);
 {$ifdef USEPARSER}
@@ -1237,6 +1238,8 @@ begin
           Project.CreateDefaultDocument(Copy(Value,1,length(Value)-5),nil,false,fHtml) else
         if copy(Value,length(Value)-3,10)=' pdf' then
           Project.CreateDefaultDocument(Copy(Value,1,length(Value)-4),nil,false,fPdf) else
+        if copy(Value,length(Value)-3,10)=' rtf' then
+          Project.CreateDefaultDocument(Copy(Value,1,length(Value)-4),nil,false,fRtf) else
           Project.CreateDefaultDocument(Value);
         Project.DestroyOpensCreatedDocuments := true; //  Destroy will launch doc
       end;
