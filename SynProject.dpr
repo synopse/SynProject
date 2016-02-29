@@ -5,7 +5,7 @@ program SynProject;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2015 Arnaud Bouchez
+    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it

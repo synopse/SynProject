@@ -5,7 +5,7 @@ unit ProjectVersionMain;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2015 Arnaud Bouchez
+    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
@@ -953,9 +953,9 @@ procedure TMainForm.BtnAboutClick(Sender: TObject);
 begin
   with LongRec(GetFileVersion(paramstr(0))) do
     if MessageDlg(format('SynProject v.%d.%d'#13+
-      'Under GPL License'#13'Copyright 2015 Synopse'+
+      'Under GPL License'#13'Copyright %d Synopse'+
       #13#13'Visit http://synopse.info ?',
-      [Hi,Lo]),mtInformation,[mbYes,mbNo],0)=mrYes then
+      [Hi,Lo,CurrentYear]),mtInformation,[mbYes,mbNo],0)=mrYes then
       ShellExecute(Handle,nil,'http://synopse.info',nil,nil,SW_SHOWNORMAL);
 end;
 
