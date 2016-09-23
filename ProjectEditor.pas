@@ -155,6 +155,7 @@ type
     procedure UpdateSections(KeepSelected: boolean);
     procedure SetTextAll(const Value: boolean);
     procedure MemoWordClick(Sender: TObject; const Clicked: TWordUnderCursor);
+    procedure MemoInsertRtfCommand(const Prefix,Suffix: string);
     function HistoryAddFromCurrent: boolean;
     function HistoryAdd(const Clicked: TWordUnderCursor): boolean;
     procedure SetParams(const Value: boolean);
@@ -839,14 +840,19 @@ begin
   BtnHistoryNext.Enabled := HistoryCurrent<HistoryMax;
 end;
 
-procedure TFrameEditor.BtnBoldItalicUnderlineClick(Sender: TObject);
+procedure TFrameEditor.MemoInsertRtfCommand(const Prefix,Suffix: string);
 var s: string;
-const Cmd: array[0..3] of string = ('{\b ','{\i ','{\ul ','{\f1\fs20 ');
 begin
-  if Memo.ReadOnly then exit; 
+  if Memo.ReadOnly then exit;
   s := Memo.SelText;
   if s='' then exit;
-  Memo.SelText := Cmd[TComponent(Sender).Tag]+s+'}';
+  Memo.SelText := prefix+s+Suffix;
+end;
+
+procedure TFrameEditor.BtnBoldItalicUnderlineClick(Sender: TObject);
+const Cmd: array[0..3] of string = ('{\b ','{\i ','{\ul ','{\f1\fs20 ');
+begin
+  MemoInsertRtfCommand(Cmd[TComponent(Sender).Tag],'}');
 end;
 
 procedure TFrameEditor.BtnUndoClick(Sender: TObject);
@@ -1381,6 +1387,7 @@ begin
   if ssCtrl in Shift then // Ctrl Key
   case Key of             // Ctrl + 0,B,I,U = Fixed,Bold,Italic,Underline font
   ord('0'): BtnBoldItalicUnderlineClick(BtnFixedFont);
+  ord('1'): MemoInsertRtfCommand('@*','@');
   ord('B'): BtnBoldItalicUnderlineClick(BtnBold);
   ord('I'): BtnBoldItalicUnderlineClick(BtnItalic);
   ord('U'): BtnBoldItalicUnderlineClick(BtnUnderline);

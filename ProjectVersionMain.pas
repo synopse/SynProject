@@ -104,6 +104,7 @@ unit ProjectVersionMain;
   - Titles are now defined with the style expected by MSWord, so that e.g. the
     generated PDF would contain the document table of content as bookmarks
   - SAD export as HTML files, including symbol recognition as hyperlinks
+  - added Ctrl+1 shortcut to insert @*keyword@ content
 
 *)
 
