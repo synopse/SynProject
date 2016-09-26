@@ -2939,14 +2939,20 @@ begin
     token := StringReplaceAll(token,'>',HTML_TAGS[false,hGT]);
 end;
 begin
-  if line='' then
+  if line='' then begin
+    WR.Add(HTML_TAGS[false,hBR]);
     exit;
+  end;
   if Last<>lastRtfCode then begin
     SetLast(lastRtfCode);
     WR.Add(HTML_TAGS[false,hPre]);
   end else
     WR.AddCRLF;
   P := Pointer(line);
+  if P=nil then begin
+    WR.Add(HTML_TAGS[false,hNbsp]);
+    exit;
+  end;
   CString := (@KeyWords=@MODULA2KEYWORDS) or (@KeyWords=@CKEYWORDS)
           or (@KeyWords=@CSHARPKEYWORDS);
   PasString := (@KeyWords=@PASCALKEYWORDS) or (@KeyWords=@DFMKEYWORDS);
@@ -3314,7 +3320,7 @@ begin
           fOnBufferWrite(self,B,P-B,hCode in Current,W) else
           W^.Add(B,P-B);
       end;
-      #10,#13: ; // just ignore control chars
+      #10,#13: ; // ignore control chars when adding content
       '{': begin
         B := P;
         repeat inc(B) until B^ in [#0,'}'];
