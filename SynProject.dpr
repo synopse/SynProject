@@ -6,7 +6,7 @@ program SynProject;
     This file is part of SynProject.
 
     Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
-      Synopse Informatique - http://synopse.info
+      Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by

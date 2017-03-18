@@ -5,8 +5,8 @@ unit ProjectTypes;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
-      Synopse Informatique - http://synopse.info
+    Synopse SynProject. Copyright (C) 2008-2017 Arnaud Bouchez
+      Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by
@@ -544,6 +544,8 @@ begin
               k := pos('@',s);
               if k=0 then
                 break; // no valid @..
+              if s[k+1]='@' then
+                break; // ignore line with @@
               if (k>1) and (NormToUpper[s[k-1]] in ['A'..'Z','0'..'9']) then begin
                 delete(s,1,k); // bidule@mlds -> email adress -> ignore
                 continue;
@@ -2278,13 +2280,13 @@ begin
     i := PosEx('@',text,j);
     if i=0 then
       break; // no more '@'
-    if (i>1) and (NormToUpper[text[i-1]] in ['A'..'Z','0'..'9']) then begin
-      j := i+1;
-      continue; // bidule@mlds -> email adress -> ignore
-    end;
     if text[i+1]='@' then begin
       j := i+2;
       continue; // @@ -> ignore
+    end;
+    if (i>1) and (NormToUpper[text[i-1]] in ['A'..'Z','0'..'9']) then begin
+      j := i+1;
+      continue; // bidule@mlds -> email adress -> ignore
     end;
     j := PosEx('@',text,i+1);
     if j=0 then

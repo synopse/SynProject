@@ -5,8 +5,8 @@ unit ProjectDiffUnit;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
-      Synopse Informatique - http://synopse.info
+    Synopse SynProject. Copyright (C) 2008-2017 Arnaud Bouchez
+      Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by
@@ -31,7 +31,7 @@ unit ProjectDiffUnit;
   Date:             November 2008
   Compilers:        Delphi 3 - Delphi 2009
   Author:           Angus Johnson - angusj-AT-myrealbox-DOT-com
-                    updated by Arnaud Bouchez http://synopse.info
+                    updated by Arnaud Bouchez https://synopse.info
   Copyright:        © 2001-2004 Angus Johnson
                     © 2008 Arnaud Bouchez
 

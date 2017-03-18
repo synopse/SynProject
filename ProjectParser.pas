@@ -5,8 +5,8 @@ unit ProjectParser;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
-      Synopse Informatique - http://synopse.info
+    Synopse SynProject. Copyright (C) 2008-2017 Arnaud Bouchez
+      Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by
@@ -1392,7 +1392,7 @@ begin
     j := 1;
     repeat
       i := posEx('@',line,j);
-      if i=0 then break;
+      if (i=0) or (line[i]='@') then break;
       j := i+1;
       while line[j] in ['A'..'Z','0'..'9','a'..'z','_'] do
         inc(j);

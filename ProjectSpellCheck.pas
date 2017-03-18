@@ -5,8 +5,8 @@ unit ProjectSpellCheck;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2016 Arnaud Bouchez
-      Synopse Informatique - http://synopse.info
+    Synopse SynProject. Copyright (C) 2008-2017 Arnaud Bouchez
+      Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
     under the terms of the GNU General Public License as published by
@@ -371,7 +371,7 @@ begin
       if PWord(PC-2)^=ord('@')+ord('!')shl 8 then
           while (PC^>=' ') and (PC^<>'@') do inc(PC) else // ignore @!button@
       if PC[-1]='@' then begin
-        if IdemPChar(PC,'HTTP://') then // reach @http://synopse.info end
+        if IdemPChar(PC,'HTTP://') then // reach @https://synopse.info end
           while PC^>=' ' do inc(PC) else
           while (PC^>=' ') and (PC^<>'@') do inc(PC); // ignore @button@
       end else
