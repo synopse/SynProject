@@ -55,7 +55,7 @@ interface
 uses
   SysUtils,
   Classes,
-{$ifdef Win32}
+{$ifdef MSWINDOWS}
   Windows;
 {$else}
   LibC, Types;
@@ -1112,7 +1112,7 @@ begin
   end;
 end;
 
-{$ifdef Win32}
+{$ifdef MSWINDOWS}
 
 procedure Redirect(Func, RedirectFunc: Pointer);
 var NewJump: PJumpCode absolute Func;

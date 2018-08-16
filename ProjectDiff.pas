@@ -831,7 +831,7 @@ function CopyFile(const source, dest: string): boolean;
 // very fast File Copy using a memory mapped file
 var Map: TMemoryMap;
 begin
-{$ifdef Win32}
+{$ifdef MSWINDOWS}
   result := SameText(source,dest);
 {$else}
   result := source=dest; // case-sensitive file names on linux
