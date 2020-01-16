@@ -5,7 +5,7 @@ unit ProjectCommons;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2019 Arnaud Bouchez
+    Synopse SynProject. Copyright (C) 2008-2020 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
@@ -43,7 +43,7 @@ unit ProjectCommons;
 
 { $D-,L-}
 
-{$I Synopse.inc} // define HASINLINE USETYPEINFO CPU32 CPU64 OWNNORMTOUPPER
+{$I Synopse.inc} // define HASINLINE CPU32 CPU64 OWNNORMTOUPPER
 
 {$ifndef ENHANCEDRTL}
   {$define NOENHANCEDRTL}
@@ -257,15 +257,15 @@ procedure TabledPCharCpy(src, dest: pAnsiChar; Count: integer; var Table: TNormT
 // very fast copy with Table-case transform
 // eax=src edx=dest ecx=Count
 asm // generates a push ebp; mov esp,ebp
-    or edx,edx
     push ebx
     push edi
+    test edx,edx
     jz @z // avoid GPF
     mov edi,ecx
     xor ebx,ebx
     xor ecx,ecx
-    cmp edi,8
     mov ebp,Table // generates mov ebp,[ebp+8]
+    cmp edi,8
     jae @loop
     jmp dword ptr [edi*4+@Table]
     nop; nop // align @Table
@@ -285,9 +285,9 @@ asm // generates a push ebp; mov esp,ebp
     mov bl,[eax+6];   mov cl,[eax+7]
     mov bl,[ebx+ebp]; mov cl,[ecx+ebp]
     mov [edx+6],bl;   mov [edx+7],cl
+    add eax,8
+    add edx,8
     cmp edi,8
-    lea eax,[eax+8]
-    lea edx,[edx+8]
     jae @loop
     jmp dword ptr [edi*4+@Table]
 @7: mov cl,[eax+6]; mov cl,[ecx+ebp]; mov [edx+6],cl
@@ -538,8 +538,8 @@ asm
     cmp [eax+20],ecx; je @ok
     cmp [eax+24],ecx; je @ok
     cmp [eax+28],ecx; je @ok
+    add eax,32
     cmp edx,8
-    lea eax,[eax+32] // preserve flags during 'cmp edx,8' computation
 @s2:jae @s1
     jmp dword ptr [edx*4+@Table]
 @7: cmp [eax+24],ecx; je @ok
@@ -550,8 +550,7 @@ asm
 @2: cmp [eax+4],ecx;  je @ok
 @1: cmp [eax],ecx;    je @ok
 @z: xor eax,eax
-@end:
-    ret
+@end: ret
 @ok:mov al,1
 end;
 
@@ -581,8 +580,8 @@ asm
   cmp [eax+20],ecx; je @ok20
   cmp [eax+24],ecx; je @ok24
   cmp [eax+28],ecx; je @ok28
+  add eax,32
   cmp edx,8
-  lea eax,[eax+32]  // preserve flags during 'cmp edx,8' computation
 @s2:
   jae @s1
   test edx,edx; jz @z // we need to find first -> no jmp [edx*4] trick :(
@@ -838,9 +837,9 @@ function IdemPChar(p, up: pAnsiChar): boolean;
 // if the beginning of p^ is same as up^ (ignore case - up^ must be already Upper)
 // eax=p edx=up
 asm
-  or eax,eax
+  test eax,eax
   jz @e // P=nil -> false
-  or edx,edx
+  test edx,edx
   push ebx
   push esi
   jz @z // up=nil -> true
@@ -850,12 +849,12 @@ asm
 @1:
   mov cl,[edx] // cl=up^
   mov bl,[eax] // bl=p^
-  test cl,cl
   mov bl,[ebx+esi] // bl=NormToUpper[p^]
+  test cl,cl
   jz @z // up^=#0 -> OK
-  lea edx,[edx+1] // = inc edx without changing flags
+  inc edx
+  inc eax
   cmp bl,cl
-  lea eax,[eax+1]
   je @1
   pop esi
   pop ebx
