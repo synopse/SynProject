@@ -5,7 +5,7 @@ unit PasDoc_Light;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2019 Arnaud Bouchez
+    Synopse SynProject. Copyright (C) 2008-2020 Arnaud Bouchez
       Synopse Informatique - http://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
@@ -52,7 +52,7 @@ const
 type
   TPasDocLight = class(TComponent)
   protected
-    FDirectives: TStringVector;
+    FDirectives: TStringVector;
     FIncludeDirectories: TStringVector;
     FSourceFileNames: TStringVector;
     FUnits: TPasUnits;
@@ -141,10 +141,10 @@ type
 
     { Adds one source from unit name ('FastMM4' e.g.) }
     procedure AddOneSourceUnit(UnitName: string);
-
+
     { Adds source filenames, may be delimted by Commas }
     procedure AddSourceFileName(const FileMaskCSV: string);
-
+
     { Adds source filenames from a stringlist }
     procedure AddSourceFileNames(const AFileNames: TStringList);
 

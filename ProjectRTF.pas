@@ -5,7 +5,7 @@ unit ProjectRTF;
 (*
     This file is part of SynProject.
 
-    Synopse SynProject. Copyright (C) 2008-2019 Arnaud Bouchez
+    Synopse SynProject. Copyright (C) 2008-2020 Arnaud Bouchez
       Synopse Informatique - https://synopse.info
 
     SynProject is free software; you can redistribute it and/or modify it
@@ -3376,7 +3376,7 @@ begin
               Buffer.Add(HTML_TAGS[false,hBR]) else
             if token='pard' then
               Stack[Level] := [] else
-            if token='par' then begin // should not occur normaly
+            if token='par' then begin // should not occur normally
               SetCurrent(W);
               W^.Add(HTML_TAGS[false,hP]);
             end else
