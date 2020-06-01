@@ -416,19 +416,19 @@ end;
                 (k = index of current diagonal vector)
 
        a r r 1
-     \ • • o •
-   a • \ • • •  given bottom1 = 0 and bottom2 = 0 and
-   r • • \ • •  given that k = 0 and curr1 = 3, then
-   r o • • + •  curr2 := 3 - 0 + 0 - 0; (ie 3)
-   2 • • • • \
+     \ * * o *
+   a * \ * * *  given bottom1 = 0 and bottom2 = 0 and
+   r * * \ * *  given that k = 0 and curr1 = 3, then
+   r o * * + *  curr2 := 3 - 0 + 0 - 0; (ie 3)
+   2 * * * * \
 
        a r r 1
-     • • o • •
-   a • • • • •  given bottom1 = 0 and bottom2 = 0 and
-   r \ • • • •  given that k = -2 and curr1 = 2, then
-   r • \ • • •
-   2 o • + • •  curr2 := 2 - 0 + 0 - -2; (ie 4)
-     • • • \ •
+     * * o * *
+   a * * * * *  given bottom1 = 0 and bottom2 = 0 and
+   r \ * * * *  given that k = -2 and curr1 = 2, then
+   r * \ * * *
+   2 o * + * *  curr2 := 2 - 0 + 0 - -2; (ie 4)
+     * * * \ *
 }
 
 function TDiff.RecursiveDiff(bottom1, bottom2, top1, top2: integer): boolean;
@@ -806,7 +806,7 @@ begin
 end;
 
 
-function GetNextLine(d: pChar): pChar;
+function GetNextLine(d: PChar): PChar;
 // stop on next #0,#10,#13
 const EndChars: set of char = [#0,#10,#13];
 begin
@@ -821,14 +821,14 @@ begin
   result := d;
 end;
 
-function GetNextLineBegin(d: pChar): pChar;
+function GetNextLineBegin(d: PChar): PChar;
 begin
   if d^=#13 then inc(d);
   if d^=#10 then inc(d);
   result := d;
 end;
 
-function IgnoreLine(d: pChar): pChar;
+function IgnoreLine(d: PChar): PChar;
 begin
   d := GetNextLine(d);
   if d^=#13 then inc(d);

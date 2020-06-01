@@ -83,7 +83,7 @@ type
     procedure Write(const s: string); overload;
 
     function Add(c: char): PStringWriter; overload;
-    function Add(p: pChar; pLen: integer): PStringWriter; overload;
+    function Add(p: PChar; pLen: integer): PStringWriter; overload;
     function Add(const s: string): PStringWriter; overload;
     function Add(const s1,s2: string): PStringWriter; overload;
     function Add(const s: array of string): PStringWriter; overload;
@@ -95,7 +95,7 @@ type
 
     function AddArray(const Args: array of const): PStringWriter;
     function AddCopy(const s: string; Index, Count: Integer): PStringWriter;
-    function AddPChar(p: pChar): PStringWriter; overload;
+    function AddPChar(p: PChar): PStringWriter; overload;
     function AddByte(value: byte): PStringWriter;
     function AddWord(value: word): PStringWriter;
     function AddInteger(const value: integer): PStringWriter;
@@ -665,7 +665,7 @@ begin
   inc(len,sLen);
 end;
 
-function TStringWriter.AddPChar(p: pChar): PStringWriter;
+function TStringWriter.AddPChar(p: PChar): PStringWriter;
 begin
   result := @self;
   sLen := StrLen(p);
@@ -768,7 +768,7 @@ begin
   result := @self;
 end;
 
-function TStringWriter.Add(p: pChar; pLen: integer): PStringWriter;
+function TStringWriter.Add(p: PChar; pLen: integer): PStringWriter;
 begin
   result := @self;
   if pLen>0 then begin
@@ -805,7 +805,7 @@ end;
 const
   hexChars: array[0..15] of Char = '0123456789ABCDEF';
   
-function Hex32ToPChar(dest: pChar; aValue: cardinal): pChar;
+function Hex32ToPChar(dest: PChar; aValue: cardinal): PChar;
 // group by byte (2 hex chars at once): faster and easier to read
 begin
   case aValue of
@@ -851,8 +851,8 @@ begin
   SetString(result,tmp,Hex32ToPChar(tmp,C)-tmp);
 end;
 
-function Hex64ToPChar(dest: pChar; aValue: Int64): pChar;
-function Write8(dest: pChar; aValue: Cardinal): pChar;
+function Hex64ToPChar(dest: PChar; aValue: Int64): PChar;
+function Write8(dest: PChar; aValue: Cardinal): PChar;
 begin
   dest[7] := HexChars[aValue and $F]; aValue := aValue shr 4;
   dest[6] := HexChars[aValue and $F]; aValue := aValue shr 4;
@@ -1067,7 +1067,7 @@ begin
   result := @self;
   if (pointer(fData)=nil) or (len+2>pInteger(cardinal(fData)-4)^) then
     SetLength(fData,length(fData)+fGrowBy); // fGrowBy is always >2
-  pWord(@fData[len+1])^ := $0a0d;  // CRLF = #13#10
+  PWord(@fData[len+1])^ := $0a0d;  // CRLF = #13#10
   inc(len,2);
 end;
 
@@ -1104,7 +1104,7 @@ begin
     if value<100 then // 10..99
       result := Add(@TwoDigitLookup[value],2) else begin // 100..999
       dest[0] := chr(ModDiv32(value,100,tmp)+48); // tmp=value mod 100
-      pWord(@dest[1])^ := pWord(@TwoDigitLookup[tmp])^;
+      PWord(@dest[1])^ := PWord(@TwoDigitLookup[tmp])^;
       result := Add(dest,3);
     end;
 end;
@@ -1120,17 +1120,17 @@ begin
       t := ModDiv32(value,100,tmp); // t=value/100 tmp=value mod 100
       if t<10 then begin // 100..999
         dest[0] := chr(t+48);
-        pWord(@dest[1])^ := pWord(@TwoDigitLookup[tmp])^;
+        PWord(@dest[1])^ := PWord(@TwoDigitLookup[tmp])^;
         result := Add(dest,3);
       end else
       if t<100 then begin // 1000..9999
-        pWord(@dest[0])^ := pWord(@TwoDigitLookup[t])^;
-        pWord(@dest[2])^ := pWord(@TwoDigitLookup[tmp])^;
+        PWord(@dest[0])^ := PWord(@TwoDigitLookup[t])^;
+        PWord(@dest[2])^ := PWord(@TwoDigitLookup[tmp])^;
         result := Add(dest,4);
       end else begin // 10000..99999
         dest[0] := chr(ModDiv32(t,100,t)+48); // t=(value/100) mod 100
-        pWord(@dest[1])^ := pWord(@TwoDigitLookup[t])^;
-        pWord(@dest[3])^ := pWord(@TwoDigitLookup[tmp])^;
+        PWord(@dest[1])^ := PWord(@TwoDigitLookup[t])^;
+        PWord(@dest[3])^ := PWord(@TwoDigitLookup[tmp])^;
         result := Add(dest,5);
       end;
   end;
@@ -1197,7 +1197,7 @@ begin
   repeat
     if Src^=#0 then break else
     if Src^='\' then begin
-      pWord(Dst)^ := ord('\')+ord('\')shl 8;
+      PWord(Dst)^ := ord('\')+ord('\')shl 8;
       inc(Dst,2);
       inc(Src);
     end else

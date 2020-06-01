@@ -1231,7 +1231,7 @@ begin
     end;
   except
     on E: Exception do
-      MessageBox(0,pChar(E.Message),'Error creating graphs',MB_ICONERROR);
+      MessageBox(0,PChar(E.Message),'Error creating graphs',MB_ICONERROR);
   end;
   finally
     Dot := Null; // release memory

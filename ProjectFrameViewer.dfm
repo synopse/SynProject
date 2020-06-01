@@ -21,7 +21,6 @@ object FrameViewer: TFrameViewer
     Completion.CaretChar = '|'
     Completion.CRLF = '/n'
     TabStops = '8'
-    CursorBeyondEOL = True
     SelForeColor = clHighlightText
     SelBackColor = clHighlight
     OnKeyDown = MemoExKeyDown

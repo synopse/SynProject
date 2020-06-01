@@ -80,6 +80,7 @@ implementation
 uses
   ProjectMemoExSyntax, ProjectRTF, ProjectVersionMain;
 
+  
 { TFrameViewer }
 
 procedure TabToSpace(P: PChar);
