@@ -1828,7 +1828,7 @@ begin
   if i>0 then
     aAbbrev := copy(un,i+1,100) else
     aAbbrev := ExtractFileName(un);
-  aAbbrev := '\qc{\i '+ValAt(aAbbrev,0,'.')+'}';
+  aAbbrev := '\qc{\i '+WithoutExt(aAbbrev)+'}';
   if WR.HandlePages then
     aPages := '\qc '+WR.RtfPageRefToString(un,true) else
     aAbbrev := WR.RtfLinkToString(un,aAbbrev);
@@ -1954,7 +1954,7 @@ begin
               desc := desc+'}.';
             end;
             if not WR.HandlePages then
-              un := ApiFolder+'/'+ValAt(ExtractFileName(un),0,'.')+'.html#';
+              un := ApiFolder+'/'+WithoutExt(ExtractFileName(un))+'.html#';
             WriteDescRow;
           end;
           WR.RtfColsEnd.RtfFont(100);
@@ -2434,7 +2434,7 @@ begin
       if SADUnitNames.IndexOf(fn)>=0 then begin
         if WR.HandlePages then
           BookMark := fn else
-          BookMark := ApiFolder+'/'+ValAt(ExtractFileName(fn),0,'.')+'.html#';
+          BookMark := ApiFolder+'/'+WithoutExt(ExtractFileName(fn))+'.html#';
         fn2 := WR.RtfLinkToString(BookMark,fn);
         diff := length(fn2)-length(fn);
         delete(text,o,i-o);

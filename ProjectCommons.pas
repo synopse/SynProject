@@ -114,6 +114,9 @@ function ValAt(const value: AnsiString; index: integer; charLimit: AnsiChar = ',
 /// ValAt('un,deux',1,','res) -> res='deux'
 procedure ValAtPChar(pc: pAnsiChar; index: integer; charLimit: AnsiChar; var result: AnsiString);
 
+/// 'mormot.core.toto.pas' -> 'mormot.core.toto'
+function WithoutExt(const s: AnsiString): AnsiString;
+
 type
   /// wrapper to a dynamic array of integer
   TIntegerDynArray = array of integer;
@@ -831,6 +834,23 @@ begin
   result := '';
   if index>=0 then
     ValAtPChar(pointer(value),index,charLimit,result);
+end;
+
+function WithoutExt(const s: AnsiString): AnsiString;
+var
+  i, max: integer;
+begin
+  i := length(s);
+  max := i - 16;
+  while (i > 0) and
+        not (s[i] in ['\', '/', '.']) and
+        (i >= max) do
+    dec(i);
+  if (i = 0) or
+     (s[i] <> '.') then
+    result := s
+  else
+    result := copy(s, 1, i - 1);
 end;
 
 function IdemPChar(p, up: pAnsiChar): boolean;

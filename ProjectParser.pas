@@ -1122,7 +1122,7 @@ begin
 end;
 procedure WAdd(const aFrom,aTo: string);
 begin
-  W.AddShort('  ').Add(aFrom).AddShort(' -> ').Add(aTo).AddShort(';'#13#10);
+  W.AddShort('  "').Add(aFrom).AddShort('" -> "').Add(aTo).AddShort('";'#13#10);
 end;
 function WGet: string;
 begin
@@ -1227,7 +1227,7 @@ begin
       CreateClassHierarchyFor(un);
       GraphTitle := un.Name;
       DestDir := Project.FileNameDir+GraphDirName;
-      CreateClassEmf(GraphFileNameOk(ValAt(un.DisplayFileName,0,'.'),false));
+      CreateClassEmf(GraphFileNameOk(WithoutExt(un.DisplayFileName),false));
     end;
   except
     on E: Exception do
@@ -1781,7 +1781,7 @@ begin
 {$ifdef WITH_GRAPHVIZ}
   if tmpWR<>nil then
     WRTitle(sClassHierarchy,sHierarchy);
-  AddGraph(GraphFileNameOk(ValAt(aUnit.DisplayFileName,0,'.'),false),WR);
+  AddGraph(GraphFileNameOk(WithoutExt(aUnit.DisplayFileName),false),WR);
 {$endif}
   Details(aUnit.CIOs,'Objects',false,true,false,true); // need table for properties
   Details(aUnit.Types,'Types',false,false,false,false);

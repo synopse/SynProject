@@ -575,7 +575,7 @@ begin
             RecordUpdate(aSCR,false,false); // select and open record for update
             NoteCreate;                     // create a note
             NoteTitle := format(sExportToPVCSNNN,[desc, // set note title
-              ValAt(ExtractFileName(Version.FileName),0,'.'),v]);
+              WithoutExt(ExtractFileName(Version.FileName)),v]);
             Note.Init; // get note content
             if comment<>'' then
               Note.Add(comment).AddCRLF;

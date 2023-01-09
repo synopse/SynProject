@@ -432,7 +432,7 @@ var
 label ok;
 {$endif}
 begin
-  Old := TPasUnit(FUnits.FindName(ValAt(ExtractFileName(SourceFileName),0,'.')));
+  Old := TPasUnit(FUnits.FindName(WithoutExt(SourceFileName)));
   if (Old<>nil) and SameText(Old.SourceFileName,SourceFileName) then
     exit; // already parsed with the same exact source file name -> fast exit
   LLoaded := false;
@@ -500,7 +500,7 @@ begin
     if not LLoaded then
     begin
       if not FileExists(SourceFileName) then begin
-        FFileNotFound.Add(ValAt(ExtractFileName(SourceFileName),0,'.'));
+        FFileNotFound.Add(WithoutExt(ExtractFileName(SourceFileName)));
         exit;
       end;
       DoMessage(2, mtInformation, 'Now parsing file %s...', [TrimSourceFileName]);
