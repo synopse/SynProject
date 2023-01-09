@@ -256,11 +256,34 @@ end;
 { Adds one source filename ('*.pas' e.g.), searching also from IncludeDirectories }
 procedure TPasDocLight.AddOneSourceUnit(UnitName: string);
 function OK(Path: string): boolean;
+var
+  SR: TSearchRec;
+  s: string;
+  SearchResult: Integer;
 begin
-  Path := Path+UnitName;
-  result := FileExists(Path);
-  if result and not FSourceFileNames.ExistsNameCI(Path) then  // add once
-    FSourceFileNames.Add(Path);
+  if Pos('*', UnitName) <> 0 then
+  begin
+    result := false; // always return false to continue searching in other folders
+    SearchResult := SysUtils.FindFirst(Path + UnitName, faAnyFile - faDirectory, SR);
+    if SearchResult <> 0 then
+      exit;
+    repeat
+      if (SR.Attr and 24) = 0 then begin
+        s := Path + SR.Name;
+        if not FSourceFileNames.ExistsNameCI(s) then  // add once
+          FSourceFileNames.Add(s)
+      end;
+      SearchResult := FindNext(SR);
+    until SearchResult <> 0;
+    SysUtils.FindClose(SR);
+  end
+  else
+  begin
+    Path := Path+UnitName;
+    result := FileExists(Path);
+    if result and not FSourceFileNames.ExistsNameCI(Path) then  // add once
+      FSourceFileNames.Add(Path);
+  end;
 end;
 var i: integer;
 begin
@@ -273,7 +296,8 @@ begin
   for i := 0 to FIncludeDirectories.Count-1 do
     if OK(FIncludeDirectories[i]) then
       exit;
-  FFileNotFound.Add(UnitName);
+  if Pos('*', UnitName) = 0 then
+    FFileNotFound.Add(UnitName);
 end;
 
 procedure TPasDocLight.AddSourceFileName(const FileMaskCSV: string);
