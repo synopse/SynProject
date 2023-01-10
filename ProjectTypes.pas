@@ -799,7 +799,7 @@ begin
        (RevSection['DefaultPath'] <> '') then
       Rev := GetCommit(IncludeTrailingPathDelimiter(RevSection['DefaultPath']) + Rev);
     if Rev = '' then
-    Header.Rev := RevSection['Revision'] else
+      Header.Rev := RevSection['Revision'] else
       Header.Rev := Rev;
   end
   else
@@ -898,8 +898,8 @@ begin
     aDocumentTitle := Doc.Params.DocName;
     WR.FileName := RevSection['FileName'];
     if WR.FileName = '' then
-    WR.FileName := Project.ReadString('DocName',Header.ProjectName)+' '+
-      aDocumentTitle+' '+Header.Rev;
+      WR.FileName := Project.ReadString('DocName',Header.ProjectName)+' '+
+        aDocumentTitle+' '+Header.Rev;
   end else
     WR.FileName := Header.DocumentTitle;
   WR.FileName := WR.FileName+'.rtf';
@@ -1356,6 +1356,7 @@ begin
   if result='0' then
     result := '';
 end;
+var HasSub: boolean;
 begin
   Doc := DocumentFind(SectionName);
   if Doc=nil then exit;
@@ -1363,6 +1364,7 @@ begin
   if (TestDoc<>nil) and (SubSection=nil) then
     exit; // don't generate [Tests] as one document, just as SubSection
   RevSection := nil;
+  HasSub := true;
   fillchar(Ok,sizeof(OK),0);
   OK[8] := IsTrue(Project[FRONTPAGE_OPTIONS[8]]);   // global NoConfidential
   OK[9] := IsTrue(Project[FRONTPAGE_OPTIONS[9]]);   // global NoHeaderBorder
@@ -1590,9 +1592,14 @@ begin
           end;
         end;
       // 2.2. second part: follow \LAYOUT order
-      title := format(sImplicationsN,[Doc.Owner.ItemName]);
-      ForceFooter(format('%s - %s',[Doc.Params.ItemName,title]));
-      WR.RtfTitle(title);
+      if DocumentFind(Doc.Owner).List = nil then
+        HasSub := false
+      else
+      begin
+        title := format(sImplicationsN,[Doc.Owner.ItemName]);
+        ForceFooter(format('%s - %s',[Doc.Params.ItemName,title]));
+        WR.RtfTitle(title);
+      end;
     end;
 {$endif}
     // 3. deal with VV-like documents (just write list of [WriteSummaryOf] documents)
@@ -1658,9 +1665,10 @@ begin
       end;
     end;
   end;
-  if {$ifdef USEPARSER}(SAD=nil) and{$endif} (Doc<>DI) then
-    CreateRTFDetails(0,true) else // write main parts, following DILayout
-    CreateRTFDetails(1,false); // write DI or SAD-like documents second part
+  if HasSub then
+    if {$ifdef USEPARSER}(SAD=nil) and{$endif} (Doc<>DI) then
+      CreateRTFDetails(0,true) else // write main parts, following DILayout
+      CreateRTFDetails(1,false); // write DI or SAD-like documents second part
   CloseRtf(SaveFormat);
   {$ifdef USEPARSER}
   for i := 0 to high(SAD) do
@@ -2334,7 +2342,7 @@ begin
           if SameText(DocName, 'revision') then
             DocName := Header.Rev
           else
-          DocName := PictureInlined(DocName,0,true);
+            DocName := PictureInlined(DocName,0,true);
         end else begin
           Ext := ExtractFileExt(DocName);
           if (DocName[1]='%') or (GetStringIndex(VALID_PICTURES_EXT, Ext)>=0) then begin
