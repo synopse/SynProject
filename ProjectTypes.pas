@@ -676,6 +676,13 @@ begin
   W.SaveToFile(aFileName);
 end;
 
+function GetCommit(const fn: TFileName): AnsiString;
+begin
+  result := Trim(StringFromFile(fn));
+  if (result <> '') and (result[1] = '''') then
+    result := copy(result, 2, length(result) - 2);
+end;
+
 procedure TProject.CreateRTF(ProjectDetails, Warning, PeopleDetails,
   RevisionDetails, AddPurpose, RiskTable, TestDetails, NoProjectDetailsLogo: boolean;
   Landscape: boolean; RevSection: TSection = nil;
@@ -696,7 +703,7 @@ begin
   until false;
   WR.RtfColsEnd;
 end;
-var Name, Value, Logo, PreparedBy, Purpose, ColW, ProjMan: string;
+var Name, Value, Logo, PreparedBy, Purpose, ColW, ProjMan, Rev: string;
     RevTableCount: integer;
     RevTable: array[0..3] of string;
     ValueKind: integer;
@@ -784,11 +791,20 @@ begin
   end;
   if RevSection=nil then
     RevSection := Doc.Params;
+  ApiFolder := 'api';
   if aRev='' then
+  begin
+    Rev := RevSection['Revision'];
+    if (PosEx('.inc', Rev) <> 0) and
+       (RevSection['DefaultPath'] <> '') then
+      Rev := GetCommit(IncludeTrailingPathDelimiter(RevSection['DefaultPath']) + Rev);
+    if Rev = '' then
     Header.Rev := RevSection['Revision'] else
+      Header.Rev := Rev;
+  end
+  else
     Header.Rev := aRev;
   Header.RevDate := RevSection.RevisionDate;
-  ApiFolder := 'api-'+Header.Rev;
   HeaderAndFooter;
   // 1.3 Document Properties
   PreparedBy := ValAt(Doc.Params['PreparedBy'],0);
@@ -2313,6 +2329,9 @@ begin
         if DocName[1]='=' then begin
           // '@=30%bidule.png@' or '@=30%%FirmwareBoot@' -> inlined picture
           delete(DocName,1,1);
+          if SameText(DocName, 'revision') then
+            DocName := Header.Rev
+          else
           DocName := PictureInlined(DocName,0,true);
         end else begin
           Ext := ExtractFileExt(DocName);

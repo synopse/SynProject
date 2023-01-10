@@ -108,6 +108,9 @@ function AnsiPosEx(const SubStr, S: AnsiString; Offset: Cardinal = 1): Integer;
 /// fast replacement of StringReplace(S, OldPattern, NewPattern,[rfReplaceAll]);
 function StringReplaceAll(const S, OldPattern, NewPattern: AnsiString): AnsiString;
 
+/// read and fill a string from a filename
+function StringFromFile(const FN: TFileName): AnsiString;
+
 /// ValAt('un,deux',1)='deux'
 function ValAt(const value: AnsiString; index: integer; charLimit: AnsiChar = ','): AnsiString;
 
@@ -799,6 +802,28 @@ begin
   if j=0 then
     result := S else
     Process(j);
+end;
+
+function StringFromFile(const FN: TFileName): AnsiString;
+var
+  F: THandle;
+  r, l: integer;
+  tmp: array[0..4095] of AnsiChar; // 4KB temp buffer
+begin
+  result := '';
+  F := FileOpen(FN, fmOpenRead);
+  if F <= 0 then
+    exit;
+  l := 0;
+  repeat
+    r := FileRead(F, tmp, SizeOf(tmp));
+    if r <= 0 then
+      break;
+    SetLength(result, l + r);
+    Move(tmp, PByteArray(result)[l], r);
+    inc(l, r);
+  until r < SizeOf(tmp);
+  FileClose(F);
 end;
 
 procedure ValAtPChar(pc: pAnsiChar; index: integer; charLimit: AnsiChar; var result: AnsiString);
