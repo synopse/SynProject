@@ -1771,9 +1771,9 @@ begin
     end;
     with TPasUnit(p) do
     if tmpWR=nil then
-      WR.RtfRow(['\ql{\i '+Name+'}',UnitDescription(false),
+      WR.RtfRow(['\ql{\i '+Name+'}',UnitDescription(true),
         '\qc '+WR.RtfPageRefToString(DisplayFileName,true,false)]) else
-      WR.RtfRow([WR.RtfLinkToString(Name+'.html#',Name),UnitDescription(false),'']);
+      WR.RtfRow([WR.RtfLinkToString(Name+'.html#',Name),UnitDescription(true),'']);
   end;
   if ok then
     WR.RtfColsEnd;
