@@ -896,6 +896,8 @@ begin
   // 3. set FileName
   if aDocumentTitle='' then begin
     aDocumentTitle := Doc.Params.DocName;
+    WR.FileName := RevSection['FileName'];
+    if WR.FileName = '' then
     WR.FileName := Project.ReadString('DocName',Header.ProjectName)+' '+
       aDocumentTitle+' '+Header.Rev;
   end else
